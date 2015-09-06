@@ -1,0 +1,8 @@
+/unversioned
+/deps
+/log
+/erl_crash.dump
+/ebin
+/.rebar
+*.beam
+*.vim

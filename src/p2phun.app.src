@@ -1,0 +1,15 @@
+{application, p2phun,
+ [
+  {description, ""},
+  {vsn, "1"},
+  {registered, []},
+  {applications, [
+      ranch,
+      lager,
+      kernel,
+      stdlib
+      % Dependencies
+     ]},
+  {mod, { p2phun_app, []}},
+  {env, []}
+ ]}.

@@ -1,0 +1,142 @@
+-module(p2phun_peer).
+-behaviour(gen_server).
+-behaviour(ranch_protocol).
+-include("peer.hrl").
+
+%% ------------------------------------------------------------------
+%% API Function Exports
+%% ------------------------------------------------------------------
+
+-export([start_link/4, start_link/3, request_peerlist/2]).
+
+%% ------------------------------------------------------------------
+%% gen_server Function Exports
+%% ------------------------------------------------------------------
+
+-export([init/1, init/4, handle_call/3, handle_cast/2, handle_info/2,
+         terminate/2, code_change/3]).
+
+-export([peermanager/1, get_peerlist/2]).
+%% ------------------------------------------------------------------
+%% API Function Definitions
+%% ------------------------------------------------------------------
+
+start_link(Ref, Socket, Transport, Opts) ->
+    proc_lib:start_link(?MODULE, init, [Ref, Socket, Transport, Opts]).
+
+start_link(Address, Port, Opts) ->
+    gen_server:start_link(?MODULE, [Address, Port, Opts], []).
+
+request_peerlist(MyId, PeerId) ->
+    ResponseId = gen_server:call(p2phun_utils:peer_process_name(MyId, PeerId), request_peerlist).
+    
+%% ------------------------------------------------------------------
+%% gen_server Function Definitions
+%% ------------------------------------------------------------------
+
+%% They connect
+init(Ref, Sock, Transport, [MyId] = _Opts) ->
+    ok = proc_lib:init_ack({ok, self()}),
+    %% Perform any required state initialization here.
+    {ok, [{Address, Port}]} = inet:peernames(Sock),
+    StateFsm = #peerstate{
+        my_id=MyId,
+        we_connected=false,
+        port=Port,
+        address=Address,
+        sock=Sock,
+        transport=Transport,
+        response_table=create_response_storage()},
+    {ok, FsmPid} = p2phun_peerstate:start_link(StateFsm),
+    State = StateFsm#peerstate{fsm_pid=FsmPid},
+    ok = Transport:setopts(Sock, [binary, {packet, 4}, {active, once}]),
+    ok = ranch:accept_ack(Ref),
+    gen_server:enter_loop(?MODULE, [], State).
+
+
+%% We connect
+init([Address, Port, MyId]) ->
+    case gen_tcp:connect(Address, Port, [binary, {packet, 4}, {active, once}], 10000) of
+        {ok, Sock} -> 
+            StateFsm = #peerstate{
+                my_id=MyId,
+                we_connected=true,
+                sock=Sock,
+                address=Address,
+                port=Port,
+                transport=gen_tcp,
+                response_table=create_response_storage()},
+            {ok, FsmPid} = p2phun_peerstate:start_link(StateFsm),
+            State = StateFsm#peerstate{fsm_pid=FsmPid},
+            lager:info("Id ~p successly connected to peer at port ~p", [MyId, Port]),
+            {ok, State};
+        {error, Reason} ->
+            {stop, {connection_error, Reason}}
+    end.
+
+handle_call(request_peerlist, _From, #peerstate{fsm_pid=FsmPid} = State) ->
+    ResponseId = p2phun_peerstate:request_peerlist(FsmPid),
+    {reply, ResponseId, State};
+handle_call(_Request, _From, State) ->
+    {reply, ok, State}.
+
+handle_cast(_Msg, State) ->
+    {noreply, State}.
+
+handle_info({tcp, Sock, RawData}, #peerstate{my_id=MyId, sock=Sock, fsm_pid=FsmPid, port=Port} = State) ->
+    case binary_to_term(RawData) of
+        {hello, {id, PeerId}} ->
+            lager:info("Node-~p: Got hello from node ~p on port ~p.", [MyId, PeerId, Port]),
+            p2phun_peerstate:got_hello(FsmPid, PeerId),
+            % Make check here to verify that we are not already connected to this node!
+            name_me(MyId, PeerId),
+            NewState = State#peerstate{peer_id=PeerId},
+            spawn_link(?MODULE, peermanager, [NewState]);
+       {request_peerlist} ->
+            lager:info("Peer request !!!! to ~p from ~p", [MyId, Port]),
+            p2phun_peerstate:send_peerlist(FsmPid),
+            NewState = State;
+       {peer_list, Peers} ->
+            p2phun_peerstate:got_peerlist(FsmPid, Peers),
+            lager:info("Her er peer-listen!: ~p", [[Peer || [Peer] <- Peers]]),
+            NewState = State;
+        Other ->
+            lager:error("Could not parse input: ~p", [Other]),
+            NewState = State
+    end,
+    inet:setopts(Sock, [{active, once}]),
+    {noreply, NewState};
+handle_info(_Info, State) ->
+    {noreply, State}.
+
+terminate(_Reason, _State) ->
+    ok.
+
+code_change(_OldVsn, State, _Extra) ->
+    {ok, State}.
+
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
+name_me(MyId, PeerId) ->
+    register(p2phun_utils:peer_process_name(MyId, PeerId), self()).
+
+create_response_storage() ->
+    ets:new(response_storage, [public, set, {keypos, 1}]).
+ 
+get_peerlist(ResponseId, #peerstate{response_table=Table} = State) ->
+    case Result = ets:lookup(Table, ResponseId) of
+        [] ->
+            lager:info("Oev, vores svar til ID ~p ikke ankommet endnu :(", [ResponseId]),
+            timer:sleep(1000),
+            get_peerlist(ResponseId, State);
+        [{ResponseId, Peerlist}] -> Peerlist
+    end.
+
+%% THIS SHOULD BE FACTORED OUT TO A SEPERATE MODULE
+% Here we should do simple repeating tasks like fetching of peer information etc.
+peermanager(#peerstate{my_id=MyId, peer_id=PeerId} = State) ->
+    timer:sleep(1000),
+    ResponseId = request_peerlist(MyId, PeerId),
+    Peerlist = get_peerlist(ResponseId, State),
+    lager:info("Saa fik vi sgu peerlisten! :): ~p", [Peerlist]).
