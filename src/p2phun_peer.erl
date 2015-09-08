@@ -7,7 +7,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/4, start_link/3, request_peerlist/2]).
+-export([start_link/4, start_link/3, request_peerlist/3]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -16,7 +16,7 @@
 -export([init/1, init/4, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--export([peermanager/1, get_peerlist/2]).
+-export([peermanager/1]).
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
@@ -27,8 +27,8 @@ start_link(Ref, Socket, Transport, Opts) ->
 start_link(Address, Port, Opts) ->
     gen_server:start_link(?MODULE, [Address, Port, Opts], []).
 
-request_peerlist(MyId, PeerId) ->
-    ResponseId = gen_server:call(p2phun_utils:peer_process_name(MyId, PeerId), request_peerlist).
+request_peerlist(CallersId, MyId, PeerId) ->
+    gen_server:call(p2phun_utils:peer_process_name(MyId, PeerId), {request_peerlist, CallersId}).
     
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -45,8 +45,7 @@ init(Ref, Sock, Transport, [MyId] = _Opts) ->
         port=Port,
         address=Address,
         sock=Sock,
-        transport=Transport,
-        response_table=create_response_storage()},
+        transport=Transport},
     {ok, FsmPid} = p2phun_peerstate:start_link(StateFsm),
     State = StateFsm#peerstate{fsm_pid=FsmPid},
     ok = Transport:setopts(Sock, [binary, {packet, 4}, {active, once}]),
@@ -64,8 +63,7 @@ init([Address, Port, MyId]) ->
                 sock=Sock,
                 address=Address,
                 port=Port,
-                transport=gen_tcp,
-                response_table=create_response_storage()},
+                transport=gen_tcp},
             {ok, FsmPid} = p2phun_peerstate:start_link(StateFsm),
             State = StateFsm#peerstate{fsm_pid=FsmPid},
             lager:info("Id ~p successly connected to peer at port ~p", [MyId, Port]),
@@ -74,8 +72,8 @@ init([Address, Port, MyId]) ->
             {stop, {connection_error, Reason}}
     end.
 
-handle_call(request_peerlist, _From, #peerstate{fsm_pid=FsmPid} = State) ->
-    ResponseId = p2phun_peerstate:request_peerlist(FsmPid),
+handle_call({request_peerlist, CallersId}, _From, #peerstate{fsm_pid=FsmPid} = State) ->
+    ResponseId = p2phun_peerstate:request_peerlist({FsmPid, CallersId}),
     {reply, ResponseId, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
@@ -121,22 +119,12 @@ code_change(_OldVsn, State, _Extra) ->
 name_me(MyId, PeerId) ->
     register(p2phun_utils:peer_process_name(MyId, PeerId), self()).
 
-create_response_storage() ->
-    ets:new(response_storage, [public, set, {keypos, 1}]).
- 
-get_peerlist(ResponseId, #peerstate{response_table=Table} = State) ->
-    case Result = ets:lookup(Table, ResponseId) of
-        [] ->
-            lager:info("Oev, vores svar til ID ~p ikke ankommet endnu :(", [ResponseId]),
-            timer:sleep(1000),
-            get_peerlist(ResponseId, State);
-        [{ResponseId, Peerlist}] -> Peerlist
-    end.
-
 %% THIS SHOULD BE FACTORED OUT TO A SEPERATE MODULE
 % Here we should do simple repeating tasks like fetching of peer information etc.
 peermanager(#peerstate{my_id=MyId, peer_id=PeerId} = State) ->
     timer:sleep(1000),
-    ResponseId = request_peerlist(MyId, PeerId),
-    Peerlist = get_peerlist(ResponseId, State),
-    lager:info("Saa fik vi sgu peerlisten! :): ~p", [Peerlist]).
+    request_peerlist(self(), MyId, PeerId),
+    receive
+        {got_peerlist, Peers} -> ok
+    end,
+    lager:info("Saa fik vi sgu peerlisten! :): ~p", [Peers]).

@@ -18,8 +18,8 @@ got_hello(FsmPid, PeerId) ->
 send_peerlist(FsmPid) ->
     gen_fsm:send_all_state_event(FsmPid, send_peerlist).
 
-request_peerlist(FsmPid) ->
-    gen_fsm:sync_send_event(FsmPid, request_peerlist).
+request_peerlist({FsmPid, CallersPid}) ->
+    gen_fsm:sync_send_event(FsmPid, {request_peerlist, CallersPid}).
 
 got_peerlist(FsmPid, Peers) ->
     gen_fsm:send_event(FsmPid, {got_peerlist, Peers}).
@@ -57,20 +57,18 @@ connected(_SomeEvent, State) ->
     lager:info("Saa har vi faet sagt halloej!"),
     {next_state, connected, State}.
 %% Sync
-connected(request_peerlist, _From, #peerstate{my_id=MyId, sock=Sock} = State) ->
-    ResponseId = erlang:unique_integer([positive, monotonic]),
+connected({request_peerlist, CallersPid}, _From, #peerstate{my_id=MyId, sock=Sock} = State) ->
     lager:info("Saa sender vi sgu en reqeust for peerlisten!"),
     send({request_peerlist}, State),
-    {reply, ResponseId, awaiting_peerlist, State#peerstate{response_id=ResponseId}};
+    {reply, CallersPid, awaiting_peerlist, State#peerstate{response_receiver_pid=CallersPid}};
 connected(_SomeEvent, _From, State) ->
     lager:info("W000th!"),
     {next_state, connected, State}.
 
 
-awaiting_peerlist({got_peerlist, Peers}, #peerstate{my_id=MyId, peer_id=PeerId, response_table=TableId, response_id=ResponseId} = State) ->
-    ets:insert(TableId, {ResponseId, Peers}),
-    lager:info("JUHUUU, saa fik vi peer-listen som forventet! TABLEID: ~p", [TableId]),
-    {next_state, connected, State#peerstate{response_id=no_id}};
+awaiting_peerlist({got_peerlist, Peers}, #peerstate{response_receiver_pid=CallersPid} = State) ->
+    CallersPid ! {got_peerlist, Peers},
+    {next_state, connected, State#peerstate{response_receiver_pid=no_receiver}};
 awaiting_peerlist(SomeEvent, State) ->
     lager:info("Event '~p' was not expected now. State: '~p'.", [SomeEvent, State]),
     {error, awaiting_peerlist}.
