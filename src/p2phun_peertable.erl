@@ -14,7 +14,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1, add_peers/2, delete_peers/2, fetch_all/1, distance/2]).
+-export([start_link/1, add_peers/2, delete_peers/2, fetch_all/1, distance/2, add_and_return_peers_not_in_table/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -30,13 +30,16 @@ start_link(Id) ->
     gen_server:start_link({local, ?SERVER_ID(Id)}, ?MODULE, [Id], []).
 
 add_peers(MyId, Peers) ->
-    gen_server:cast(?SERVER_ID(MyId), {add_peers, Peers}).
+    gen_server:cast(?SERVER_ID(MyId), {add_peers, wrap_in_list(Peers)}).
 
 delete_peers(MyId, Peers) ->
-    gen_server:cast(?SERVER_ID(MyId), {delete_peers, Peers}).
+    gen_server:cast(?SERVER_ID(MyId), {delete_peers, wrap_in_list(Peers)}).
 
 fetch_all(MyId) ->
     gen_server:call(?SERVER_ID(MyId), fetch_all).
+
+add_and_return_peers_not_in_table(MyId, Peers) ->
+    gen_server:call(?SERVER_ID(MyId), {add_peers_not_in_table, wrap_in_list(Peers)}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -48,7 +51,11 @@ init([Id]) ->
     {ok, #state{id=Id, tablename=Tablename}}.
 
 handle_call(fetch_all, _From, State) ->
-    {reply, ets:match(State#state.tablename, '$1'), State};
+    Peers = [Peer || [Peer] <- ets:match(State#state.tablename, '$1')],
+    {reply, Peers, State};
+handle_call({add_peers_not_in_table, Peers}, _From, State) ->
+    PeersAdded = add_peers_not_in_table_(State#state.tablename, Peers),
+    {reply, PeersAdded, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -56,7 +63,7 @@ handle_cast({add_peers, Peers}, State) ->
     add_peers_(State#state.tablename, Peers),
     {noreply, State};
 handle_cast({delete_peers, Peers}, State) ->
-    delete_peer(State#state.tablename, Peers),
+    delete_peers_(State#state.tablename, Peers),
     {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -74,24 +81,41 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
-peer2record(#peer{id=_Id, port=_Port, address=_Address} = Peer) ->
-    Peer;
-peer2record({Id, Address, Port} = Peer) ->
-    #peer{id=Id, address=Address, port=Port}.
-
-add_peers_(Tablename, Peers) when is_list(Peers) ->
+add_peers_(Tablename, Peers) ->
     PeersTmp = [peer2record(Peer) || Peer <- Peers],
-    ets:insert(Tablename, PeersTmp);
-add_peers_(Tablename, Peer) ->
-    add_peers_(Tablename, [Peer]).
+    ets:insert(Tablename, PeersTmp).
 
-delete_peer(Tablename, Peers) when is_list(Peers) ->
-    [delete_peer(Tablename, Peer) || Peer <- Peers];
-delete_peer(Tablename, Peer) ->
-    ets:delete_object(Tablename, peer2record(Peer)).
+delete_peers_(Tablename, Peers) ->
+    DeletePeer = fun(Peer) -> ets:delete(Tablename, peer2record(Peer)) end,
+    lists:foreach(DeletePeer, Peers).
+
+add_peers_not_in_table_(Tablename, Peers) ->
+    Peers2Add = filter_peers_not_in_table(Tablename, Peers),
+    add_peers_(Tablename, Peers2Add),
+    Peers2Add.
+
+filter_peers_not_in_table(Tablename, Peers) ->
+    NotInTable =
+        fun(Peer) ->
+            case ets:lookup(Tablename, Peer#peer.id) of
+                [] -> true;
+                _ -> false
+            end
+        end,
+    lists:filter(NotInTable, Peers).
 
 distance(BaseId, Id) ->
     case BaseId < Id of
         true -> Id - BaseId;
         false -> (?MAX_PEERID - BaseId) + Id
     end.
+
+wrap_in_list(ListOfObjects) when is_list(ListOfObjects) ->
+    ListOfObjects;
+wrap_in_list(Object) ->
+    [Object].
+
+peer2record(#peer{id=_Id, port=_Port, address=_Address} = Peer) ->
+    Peer;
+peer2record({Id, Address, Port} = _Peer) ->
+    #peer{id=Id, address=Address, port=Port}.

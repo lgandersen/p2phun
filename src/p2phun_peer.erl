@@ -16,7 +16,7 @@
 -export([init/1, init/4, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--export([peermanager/1]).
+-export([peermanager/2]).
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
@@ -83,13 +83,16 @@ handle_cast(_Msg, State) ->
 
 handle_info({tcp, Sock, RawData}, #peerstate{my_id=MyId, sock=Sock, fsm_pid=FsmPid, port=Port} = State) ->
     case binary_to_term(RawData) of
+        ping ->
+            p2phun_peerstate:got_pong(FsmPid),
+            NewState = State;
         {hello, {id, PeerId}} ->
-            lager:info("Node-~p: Got hello from node ~p on port ~p.", [MyId, PeerId, Port]),
+            lager:info("Node-~p: Hello from node ~p on port ~p.", [MyId, PeerId, Port]),
             p2phun_peerstate:got_hello(FsmPid, PeerId),
             % Make check here to verify that we are not already connected to this node!
             name_me(MyId, PeerId),
             NewState = State#peerstate{peer_id=PeerId},
-            spawn_link(?MODULE, peermanager, [NewState]);
+            spawn_link(?MODULE, peermanager, [0, NewState]);
        {request_peerlist} ->
             lager:info("Peer request !!!! to ~p from ~p", [MyId, Port]),
             p2phun_peerstate:send_peerlist(FsmPid),
@@ -121,10 +124,17 @@ name_me(MyId, PeerId) ->
 
 %% THIS SHOULD BE FACTORED OUT TO A SEPERATE MODULE
 % Here we should do simple repeating tasks like fetching of peer information etc.
-peermanager(#peerstate{my_id=MyId, peer_id=PeerId} = State) ->
+peermanager(Count, #peerstate{my_id=MyId, peer_id=PeerId} = State) ->
     timer:sleep(1000),
-    request_peerlist(self(), MyId, PeerId),
-    receive
-        {got_peerlist, Peers} -> ok
+    case Count > 1 of
+        true ->
+            request_peerlist(self(), MyId, PeerId),
+            receive
+                {got_peerlist, Peers} -> ok
+            end,
+            p2phun_peertable:add_and_return_peers_not_in_table(MyId, Peers),
+            NewCount = 0;
+        false ->
+            NewCount = Count + 1
     end,
-    lager:info("Saa fik vi sgu peerlisten! :): ~p", [Peers]).
+    peermanager(NewCount, State).
