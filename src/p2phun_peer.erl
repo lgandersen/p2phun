@@ -1,4 +1,4 @@
--module(p2phun_peerstate).
+-module(p2phun_peer).
 -behaviour(gen_fsm).
 
 %% Api function exports
@@ -16,25 +16,25 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 start_link(State) ->
-    gen_fsm:start_link(p2phun_peerstate, State, []).
+    gen_fsm:start_link(p2phun_peer, State, []).
 
-got_hello(FsmPid, PeerId) ->
-    gen_fsm:send_event(FsmPid, {got_hello, PeerId}).
+got_hello(PeerPid, PeerId) ->
+    gen_fsm:send_event(PeerPid, {got_hello, PeerId}).
 
-send_peerlist(FsmPid) ->
-    gen_fsm:send_all_state_event(FsmPid, send_peerlist).
+send_peerlist(PeerPid) ->
+    gen_fsm:send_all_state_event(PeerPid, send_peerlist).
 
-request_peerlist(FsmPid, CallersPid) ->
-    gen_fsm:send_event(FsmPid, {request_peerlist, CallersPid}).
+request_peerlist(PeerPid, CallersPid) ->
+    gen_fsm:send_event(PeerPid, {request_peerlist, CallersPid}).
 
-got_peerlist(FsmPid, Peers) ->
-    gen_fsm:send_event(FsmPid, {got_peerlist, Peers}).
+got_peerlist(PeerPid, Peers) ->
+    gen_fsm:send_event(PeerPid, {got_peerlist, Peers}).
 
-ping(FsmPid, CallersPid) ->
-    gen_fsm:send_event(FsmPid, {ping, CallersPid}).
+ping(PeerPid, CallersPid) ->
+    gen_fsm:send_event(PeerPid, {ping, CallersPid}).
 
-got_pong(FsmPid) ->
-    gen_fsm:send_event(FsmPid, got_pong).
+got_pong(PeerPid) ->
+    gen_fsm:send_event(PeerPid, got_pong).
 
 %% ------------------------------------------------------------------
 %% gen_fsm Function Definitions
@@ -44,7 +44,7 @@ init(#peerstate{we_connected=WeConnected, my_id=MyId} = State) when WeConnected 
     {ok, awaiting_hello, State};
 init(#peerstate{we_connected=WeConnected} = State) when WeConnected == false ->
     {ok, awaiting_hello, State};
-init(State) ->
+init(_State) ->
     {stop, state_unparseable}.
 
 
@@ -70,7 +70,7 @@ code_change(_OldVsn, StName, StData, _Extra) ->
 %% ------------------------------------------------------------------
 awaiting_hello({got_hello, PeerId}, #peerstate{my_id=MyId, sock=Sock} = State) ->
     {ok, [{Address, Port}]} = inet:peernames(Sock),
-    p2phun_peertable:add_peers(MyId, {PeerId, Address, Port}), %Should we save FsmPid as well? This is probably the interface
+    p2phun_peertable:add_peers(MyId, {PeerId, Address, Port}), %Should we save PeerPid as well? This is probably the interface
     case State#peerstate.we_connected of
       false -> send({hello, {id, MyId}}, State);
       true -> ok
@@ -78,7 +78,7 @@ awaiting_hello({got_hello, PeerId}, #peerstate{my_id=MyId, sock=Sock} = State) -
     {next_state, connected, State#peerstate{peer_id=PeerId}};
 awaiting_hello(SomeEvent, #peerstate{my_id=MyId} = State) ->
     lager:warning("Node-~p: Say hello before doing ~p or anything else.", [MyId, SomeEvent]),
-    {next_state, initializing, State}.    
+    {next_state, initializing, State}.
 
 connected({ping, CallersPid}, State) ->
     lager:info("Pinging peer.."),

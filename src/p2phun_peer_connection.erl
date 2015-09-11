@@ -37,15 +37,7 @@ init(Ref, Sock, Transport, [MyId] = _Opts) ->
     ok = proc_lib:init_ack({ok, self()}),
     %% Perform any required state initialization here.
     {ok, [{Address, Port}]} = inet:peernames(Sock),
-    StateFsm = #peerstate{
-        my_id=MyId,
-        we_connected=false,
-        port=Port,
-        address=Address,
-        sock=Sock,
-        transport=Transport},
-    {ok, FsmPid} = p2phun_peerstate:start_link(StateFsm),
-    State = StateFsm#peerstate{fsm_pid=FsmPid},
+    State = initialize(MyId, Address, Port, Sock, Transport, false),
     ok = Transport:setopts(Sock, [binary, {packet, 4}, {active, once}]),
     ok = ranch:accept_ack(Ref),
     gen_server:enter_loop(?MODULE, [], State).
@@ -55,44 +47,48 @@ init(Ref, Sock, Transport, [MyId] = _Opts) ->
 init([Address, Port, MyId]) ->
     case gen_tcp:connect(Address, Port, [binary, {packet, 4}, {active, once}], 10000) of
         {ok, Sock} -> 
-            StateFsm = #peerstate{
-                my_id=MyId,
-                we_connected=true,
-                sock=Sock,
-                address=Address,
-                port=Port,
-                transport=gen_tcp},
-            {ok, FsmPid} = p2phun_peerstate:start_link(StateFsm),
-            State = StateFsm#peerstate{fsm_pid=FsmPid},
+            State = initialize(MyId, Address, Port, Sock, gen_tcp, true),
             lager:info("Id ~p successly connected to peer at port ~p", [MyId, Port]),
             {ok, State};
         {error, Reason} ->
             {stop, {connection_error, Reason}}
     end.
 
+initialize(MyId, Address, Port, Sock, Transport, WeConnected) ->
+    StateFsm = #peerstate{
+        my_id=MyId,
+        we_connected=WeConnected,
+        sock=Sock,
+        address=Address,
+        port=Port,
+        transport=Transport},
+    {ok, PeerPid} = p2phun_peer:start_link(StateFsm),
+    StateFsm#peerstate{peer_pid=PeerPid}.
+
+
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({tcp, Sock, RawData}, #peerstate{my_id=MyId, sock=Sock, fsm_pid=FsmPid, port=Port} = State) ->
+handle_info({tcp, Sock, RawData}, #peerstate{my_id=MyId, sock=Sock, peer_pid=PeerPid, port=Port} = State) ->
     case binary_to_term(RawData) of
         ping ->
-            p2phun_peerstate:got_pong(FsmPid),
+            p2phun_peer:got_pong(PeerPid),
             NewState = State;
         {hello, {id, PeerId}} ->
             lager:info("Node-~p: Hello from node ~p on port ~p.", [MyId, PeerId, Port]),
-            p2phun_peerstate:got_hello(FsmPid, PeerId),
+            p2phun_peer:got_hello(PeerPid, PeerId),
             % Make check here to verify that we are not already connected to this node!
             name_me(MyId, PeerId),
             NewState = State#peerstate{peer_id=PeerId},
             spawn_link(?MODULE, peermanager, [0, NewState]);
        {request_peerlist} ->
             lager:info("Peer request !!!! to ~p from ~p", [MyId, Port]),
-            p2phun_peerstate:send_peerlist(FsmPid),
+            p2phun_peer:send_peerlist(PeerPid),
             NewState = State;
        {peer_list, Peers} ->
-            p2phun_peerstate:got_peerlist(FsmPid, Peers),
+            p2phun_peer:got_peerlist(PeerPid, Peers),
             NewState = State;
         Other ->
             lager:error("Could not parse input: ~p", [Other]),
@@ -117,11 +113,11 @@ name_me(MyId, PeerId) ->
 
 %% THIS SHOULD BE FACTORED OUT TO A SEPERATE MODULE
 % Here we should do simple repeating tasks like fetching of peer information etc.
-peermanager(Count, #peerstate{my_id=MyId, fsm_pid=FsmPid} = State) ->
+peermanager(Count, #peerstate{my_id=MyId, peer_pid=PeerPid} = State) ->
     timer:sleep(1000),
     case Count > 1 of
         true ->
-            p2phun_peerstate:request_peerlist(FsmPid, self()),
+            p2phun_peer:request_peerlist(PeerPid, self()),
             %request_peerlist(self(), MyId, PeerId),
             receive
                 {got_peerlist, Peers} -> ok
@@ -132,5 +128,5 @@ peermanager(Count, #peerstate{my_id=MyId, fsm_pid=FsmPid} = State) ->
             NewCount = Count + 1
     end,
     timer:sleep(1000),
-    p2phun_peerstate:ping(FsmPid, self()),
+    p2phun_peer:ping(PeerPid, self()),
     peermanager(NewCount, State).
