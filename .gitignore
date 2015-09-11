@@ -6,3 +6,4 @@
 /.rebar
 *.beam
 *.vim
+frege

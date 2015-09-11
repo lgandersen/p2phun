@@ -26,28 +26,10 @@ start_link(Nodes) ->
 %% ===================================================================
 
 init([Nodes]) ->
-    PeerTable = fun(#node_config{id=Id} = _Node) ->
-        {
-         {peertable, Id},
-         {p2phun_peertable, start_link, [Id]},
-         permanent, 2000, worker, [routingtable]
-        }
+    NodeSupervisors = lists:map(
+        fun(#node_config{id=Id} = Node) ->
+            {{peertable, Id}, {p2phun_node_sup, start_link, [Node]}, permanent, 2000, supervisor, []}
         end,
-    PeerTables = [PeerTable(Node) || Node <- Nodes],
-    Listener = fun(#node_config{id=Id, port=Port} = _Node) ->
-        {
-         {ranch_listener, Id},
-         {ranch, start_listener, [{p2phun_peer_pool, Id}, 2, ranch_tcp, [{port, Port}], p2phun_peer_pool, [Id]]},
-         permanent, 2000, supervisor, [ranch]
-        }
-        end,
-    Listeners = [Listener(Node) || Node <- Nodes],
-    Pool = fun(#node_config{id=Id} = _Node) ->
-        {
-         {peer_pool, Id},
-         {p2phun_peer_pool, start_link, [Id]},
-         permanent, 2000, supervisor, [p2phun_peer_pool]
-        }
-        end,
-    Pools = [Pool(Node) || Node <- Nodes],
-    {ok, {{one_for_one, 5, 10}, PeerTables ++ Listeners ++ Pools}}.
+        Nodes
+        ),
+    {ok, {{one_for_one, 5, 10}, NodeSupervisors}}.
