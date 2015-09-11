@@ -2,7 +2,7 @@
 -behaviour(gen_fsm).
 
 %% Api function exports
--export([start_link/1, got_hello/2, send_peerlist/1, request_peerlist/2, got_peerlist/2, got_pong/1, ping/2]).
+-export([start_link/1, got_hello/2, send_peerlist/1, request_peerlist/2, got_peerlist/2, got_pong/1, request_pong/2, send_pong/1]).
 
 %% gen_fsm exports
 -export([init/1, handle_event/3, handle_info/3, handle_sync_event/4, terminate/3, code_change/4]).
@@ -24,13 +24,16 @@ got_hello(PeerPid, PeerId) ->
 send_peerlist(PeerPid) ->
     gen_fsm:send_all_state_event(PeerPid, send_peerlist).
 
+send_pong(PeerPid) ->
+    gen_fsm:send_all_state_event(PeerPid, send_pong).
+
 request_peerlist(PeerPid, CallersPid) ->
     gen_fsm:send_event(PeerPid, {request_peerlist, CallersPid}).
 
 got_peerlist(PeerPid, Peers) ->
     gen_fsm:send_event(PeerPid, {got_peerlist, Peers}).
 
-ping(PeerPid, CallersPid) ->
+request_pong(PeerPid, CallersPid) ->
     gen_fsm:send_event(PeerPid, {ping, CallersPid}).
 
 got_pong(PeerPid) ->
@@ -47,9 +50,12 @@ init(#peerstate{we_connected=WeConnected} = State) when WeConnected == false ->
 init(_State) ->
     {stop, state_unparseable}.
 
+handle_event(send_pong, StateName, State) ->
+    send(pong, State),
+    {next_state, StateName, State};
 handle_event(send_peerlist, StateName, State) ->
     Peers = p2phun_peertable:fetch_all(State#peerstate.my_id),
-    send({peer_list, Peers}, State),
+    send_hello(State),
     {next_state, StateName, State}.
 
 handle_sync_event(_Event, _From, _StName, StData) ->
@@ -67,9 +73,11 @@ code_change(_OldVsn, StName, StData, _Extra) -> {ok, StName, StData}.
 %% ------------------------------------------------------------------
 awaiting_hello({got_hello, PeerId}, #peerstate{my_id=MyId, sock=Sock} = State) ->
     {ok, [{Address, Port}]} = inet:peernames(Sock),
+    %-record(peer, {id, port, address, listening_port=none, peer_pid=none}).
+    %#peer{id=PeerId, port=Port
     p2phun_peertable:add_peers(MyId, {PeerId, Address, Port}), %Should we save PeerPid as well? This is probably the interface
     case State#peerstate.we_connected of
-      false -> send({hello, {id, MyId}}, State);
+      false -> send_hello(State);
       true -> ok
     end,
     {next_state, connected, State#peerstate{peer_id=PeerId}};
@@ -83,7 +91,7 @@ connected({ping, CallersPid}, State) ->
     {next_state, awaiting_pong, State#peerstate{callers_pid=CallersPid}};
 connected({request_peerlist, CallersPid}, State) ->
     lager:info("Saa sender vi sgu en reqeust for peerlisten!"),
-    send({request_peerlist}, State),
+    send(request_peerlist, State),
     {next_state, awaiting_peerlist, State#peerstate{callers_pid=CallersPid}};
 connected(_SomeEvent, State) ->
     lager:info("Saa har vi faet sagt halloej!"),
@@ -108,5 +116,8 @@ awaiting_peerlist(SomeEvent, State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+send_hello(#peerstate{my_id=MyId} = State) ->
+    send({hello, {id, MyId}}, State).
+
 send(Msg, #peerstate{transport=Transport, sock=Sock} = _State) ->
     Transport:send(Sock, term_to_binary(Msg)).

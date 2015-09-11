@@ -8,14 +8,14 @@ init(Count, #peerstate{my_id=MyId, peer_pid=PeerPid} = State) ->
     case Count > 1 of
         true ->
             p2phun_peer:request_peerlist(PeerPid, self()),
-            receive
-                {got_peerlist, Peers} -> ok
-            end,
+            receive {got_peerlist, Peers} -> ok end,
             p2phun_peertable:add_and_return_peers_not_in_table(MyId, Peers),
             NewCount = 0;
         false ->
             NewCount = Count + 1
     end,
     timer:sleep(1000),
-    p2phun_peer:ping(PeerPid, self()),
+    p2phun_peer:request_pong(PeerPid, self()),
+    receive pong -> lager:info("Got pong!")
+    after 5000 -> lager:info("Peer not responding to pong in 5 seconds. Should be dropped.") end,
     init(NewCount, State).

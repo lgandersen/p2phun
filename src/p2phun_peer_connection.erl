@@ -73,6 +73,9 @@ handle_cast(_Msg, State) ->
 handle_info({tcp, Sock, RawData}, #peerstate{my_id=MyId, sock=Sock, peer_pid=PeerPid, port=Port} = State) ->
     case binary_to_term(RawData) of
         ping ->
+            p2phun_peer:send_pong(PeerPid),
+            NewState = State;
+        pong ->
             p2phun_peer:got_pong(PeerPid),
             NewState = State;
         {hello, {id, PeerId}} ->
@@ -82,7 +85,7 @@ handle_info({tcp, Sock, RawData}, #peerstate{my_id=MyId, sock=Sock, peer_pid=Pee
             name_me(MyId, PeerId),
             NewState = State#peerstate{peer_id=PeerId},
             spawn_link(p2phun_peer_manager, init, [0, NewState]);
-       {request_peerlist} ->
+       request_peerlist ->
             lager:info("Peer request !!!! to ~p from ~p", [MyId, Port]),
             p2phun_peer:send_peerlist(PeerPid),
             NewState = State;

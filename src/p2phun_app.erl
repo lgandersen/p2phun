@@ -20,7 +20,6 @@ start(_StartType, _StartArgs) ->
         #node_config{id=3, ip="127.0.0.1", port=5003, initial_peers=[{"127.0.0.1", 5001}, {"127.0.0.1", 5002}]}
         ],
     Status = p2phun_sup:start_link(Nodes),
-    lager:info("Starting p2phun main supervisor: ~p", [Status]),
     ConnectionsToMake = lists:flatten(lists:map(fun bootstrap_list/1, Nodes)),
     lager:info("Initial conditions: ~p\n", [ConnectionsToMake]),
     lists:map(fun connect_to/1, ConnectionsToMake),
