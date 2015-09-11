@@ -47,7 +47,6 @@ init(#peerstate{we_connected=WeConnected} = State) when WeConnected == false ->
 init(_State) ->
     {stop, state_unparseable}.
 
-
 handle_event(send_peerlist, StateName, State) ->
     Peers = p2phun_peertable:fetch_all(State#peerstate.my_id),
     send({peer_list, Peers}, State),
@@ -59,11 +58,9 @@ handle_sync_event(_Event, _From, _StName, StData) ->
 handle_info(_Info, _StName, StData) ->
     {stop, unimplemented, StData}.
 
-terminate(_Reason, _StName, _StData) ->
-    ok.
+terminate(_Reason, _StName, _StData) -> ok.
 
-code_change(_OldVsn, StName, StData, _Extra) ->
-    {ok, StName, StData}.
+code_change(_OldVsn, StName, StData, _Extra) -> {ok, StName, StData}.
 
 %% ------------------------------------------------------------------
 %% gen_fsm State Function Definitions

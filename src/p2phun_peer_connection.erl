@@ -17,7 +17,6 @@
 -export([init/1, init/4, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
--export([peermanager/2]).
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
@@ -55,15 +54,15 @@ init([Address, Port, MyId]) ->
     end.
 
 initialize(MyId, Address, Port, Sock, Transport, WeConnected) ->
-    StateFsm = #peerstate{
+    PeerState= #peerstate{
         my_id=MyId,
         we_connected=WeConnected,
         sock=Sock,
         address=Address,
         port=Port,
         transport=Transport},
-    {ok, PeerPid} = p2phun_peer:start_link(StateFsm),
-    StateFsm#peerstate{peer_pid=PeerPid}.
+    {ok, PeerPid} = p2phun_peer:start_link(PeerState),
+    PeerState#peerstate{peer_pid=PeerPid}.
 
 
 handle_call(_Request, _From, State) ->
@@ -82,7 +81,7 @@ handle_info({tcp, Sock, RawData}, #peerstate{my_id=MyId, sock=Sock, peer_pid=Pee
             % Make check here to verify that we are not already connected to this node!
             name_me(MyId, PeerId),
             NewState = State#peerstate{peer_id=PeerId},
-            spawn_link(?MODULE, peermanager, [0, NewState]);
+            spawn_link(p2phun_peer_manager, init, [0, NewState]);
        {request_peerlist} ->
             lager:info("Peer request !!!! to ~p from ~p", [MyId, Port]),
             p2phun_peer:send_peerlist(PeerPid),
@@ -99,34 +98,11 @@ handle_info({tcp, Sock, RawData}, #peerstate{my_id=MyId, sock=Sock, peer_pid=Pee
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, _State) ->
-    ok.
+terminate(_Reason, _State) -> ok.
 
-code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-name_me(MyId, PeerId) ->
-    register(p2phun_utils:peer_process_name(MyId, PeerId), self()).
-
-%% THIS SHOULD BE FACTORED OUT TO A SEPERATE MODULE
-% Here we should do simple repeating tasks like fetching of peer information etc.
-peermanager(Count, #peerstate{my_id=MyId, peer_pid=PeerPid} = State) ->
-    timer:sleep(1000),
-    case Count > 1 of
-        true ->
-            p2phun_peer:request_peerlist(PeerPid, self()),
-            %request_peerlist(self(), MyId, PeerId),
-            receive
-                {got_peerlist, Peers} -> ok
-            end,
-            p2phun_peertable:add_and_return_peers_not_in_table(MyId, Peers),
-            NewCount = 0;
-        false ->
-            NewCount = Count + 1
-    end,
-    timer:sleep(1000),
-    p2phun_peer:ping(PeerPid, self()),
-    peermanager(NewCount, State).
+name_me(MyId, PeerId) -> register(p2phun_utils:peer_process_name(MyId, PeerId), self()).
