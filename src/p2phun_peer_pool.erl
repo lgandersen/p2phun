@@ -28,9 +28,7 @@ start_link(Id) ->
 %% Ranch callback
 start_link(ListenerId, Socket, Transport, [Id] = Opts) ->
     lager:info("Incoming peer for id ~p!\n", [Id]),
-    Status = supervisor:start_child(p2phun_utils:id2proc_name(?MODULE, Id), [ListenerId, Socket, Transport, Opts]),
-    lager:info("Status on child start: ~p!\n", [Status]),
-    Status.
+    supervisor:start_child(p2phun_utils:id2proc_name(?MODULE, Id), [ListenerId, Socket, Transport, Opts]).
 
 %% Connect to a new peer
 connect(Address, Port, [Id] = _Opts) ->
@@ -40,4 +38,4 @@ connect(Address, Port, [Id] = _Opts) ->
 %% Supervisor callbacks
 %% ===================================================================
 init(_Id) ->
-    {ok, {{simple_one_for_one, 5, 10}, [?CHILD(p2phun_peer, worker)]}}.
+    {ok, {{simple_one_for_one, 5, 10}, [?CHILD(p2phun_peer_connection, worker)]}}.

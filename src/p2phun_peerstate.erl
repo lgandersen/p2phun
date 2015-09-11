@@ -2,13 +2,13 @@
 -behaviour(gen_fsm).
 
 %% Api function exports
--export([start_link/1, got_hello/2, send_peerlist/1, request_peerlist/1, got_peerlist/2, got_pong/1]).
+-export([start_link/1, got_hello/2, send_peerlist/1, request_peerlist/2, got_peerlist/2, got_pong/1, ping/2]).
 
 %% gen_fsm exports
 -export([init/1, handle_event/3, handle_info/3, handle_sync_event/4, terminate/3, code_change/4]).
 
 %% State function exports
--export([awaiting_hello/2, connected/2, connected/3, awaiting_peerlist/2]).
+-export([awaiting_hello/2, connected/2, connected/3, awaiting_peerlist/2, awaiting_pong/2]).
 
 -include("peer.hrl").
 
@@ -24,13 +24,13 @@ got_hello(FsmPid, PeerId) ->
 send_peerlist(FsmPid) ->
     gen_fsm:send_all_state_event(FsmPid, send_peerlist).
 
-request_peerlist({FsmPid, CallersPid}) ->
+request_peerlist(FsmPid, CallersPid) ->
     gen_fsm:send_event(FsmPid, {request_peerlist, CallersPid}).
 
 got_peerlist(FsmPid, Peers) ->
     gen_fsm:send_event(FsmPid, {got_peerlist, Peers}).
 
-ping({FsmPid, CallersPid}) ->
+ping(FsmPid, CallersPid) ->
     gen_fsm:send_event(FsmPid, {ping, CallersPid}).
 
 got_pong(FsmPid) ->
@@ -45,7 +45,6 @@ init(#peerstate{we_connected=WeConnected, my_id=MyId} = State) when WeConnected 
 init(#peerstate{we_connected=WeConnected} = State) when WeConnected == false ->
     {ok, awaiting_hello, State};
 init(State) ->
-    lager:error("Could not initialize peerstate because faulty state supplied: ~p", [State]),
     {stop, state_unparseable}.
 
 
@@ -71,7 +70,7 @@ code_change(_OldVsn, StName, StData, _Extra) ->
 %% ------------------------------------------------------------------
 awaiting_hello({got_hello, PeerId}, #peerstate{my_id=MyId, sock=Sock} = State) ->
     {ok, [{Address, Port}]} = inet:peernames(Sock),
-    p2phun_peertable:add_peers(MyId, {PeerId, Address, Port}),
+    p2phun_peertable:add_peers(MyId, {PeerId, Address, Port}), %Should we save FsmPid as well? This is probably the interface
     case State#peerstate.we_connected of
       false -> send({hello, {id, MyId}}, State);
       true -> ok
@@ -79,16 +78,16 @@ awaiting_hello({got_hello, PeerId}, #peerstate{my_id=MyId, sock=Sock} = State) -
     {next_state, connected, State#peerstate{peer_id=PeerId}};
 awaiting_hello(SomeEvent, #peerstate{my_id=MyId} = State) ->
     lager:warning("Node-~p: Say hello before doing ~p or anything else.", [MyId, SomeEvent]),
-    {next_state, initializing, State}.    
+    {next_state, initializing, State}.
 
 connected({ping, CallersPid}, State) ->
     lager:info("Pinging peer.."),
     send(ping, State),
-    {next_state, awaiting_pong, State#peerstate{response_receiver_pid=CallersPid}};
+    {next_state, awaiting_pong, State#peerstate{callers_pid=CallersPid}};
 connected({request_peerlist, CallersPid}, State) ->
     lager:info("Saa sender vi sgu en reqeust for peerlisten!"),
     send({request_peerlist}, State),
-    {next_state, awaiting_peerlist, State#peerstate{response_receiver_pid=CallersPid}};
+    {next_state, awaiting_peerlist, State#peerstate{callers_pid=CallersPid}};
 connected(_SomeEvent, State) ->
     lager:info("Saa har vi faet sagt halloej!"),
     {next_state, connected, State}.
@@ -96,14 +95,14 @@ connected(_SomeEvent, State) ->
 connected(_SomeEvent, _From, State) ->
     {next_state, connected, State}.
 
-awaiting_pong(got_pong, #peerstate{response_receiver_pid=CallersPid} = State) ->
+awaiting_pong(got_pong, #peerstate{callers_pid=CallersPid} = State) ->
     lager:info("Got pong!"),
     CallersPid ! pong,
     {next_state, connected, State}.
 
-awaiting_peerlist({got_peerlist, Peers}, #peerstate{response_receiver_pid=CallersPid} = State) ->
+awaiting_peerlist({got_peerlist, Peers}, #peerstate{callers_pid=CallersPid} = State) ->
     CallersPid ! {got_peerlist, Peers},
-    {next_state, connected, State#peerstate{response_receiver_pid=no_receiver}};
+    {next_state, connected, State#peerstate{callers_pid=no_receiver}};
 awaiting_peerlist(SomeEvent, State) ->
     lager:info("Event '~p' was not expected now. State: '~p'.", [SomeEvent, State]),
     {error, awaiting_peerlist}.
