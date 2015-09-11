@@ -31,8 +31,8 @@ start_link(ListenerId, Socket, Transport, [Id] = Opts) ->
     supervisor:start_child(p2phun_utils:id2proc_name(?MODULE, Id), [ListenerId, Socket, Transport, Opts]).
 
 %% Connect to a new peer
-connect(Address, Port, [Id] = _Opts) ->
-    supervisor:start_child(p2phun_utils:id2proc_name(?MODULE, Id), [Address, Port, Id]).
+connect(MyId, Address, Port) ->
+    supervisor:start_child(p2phun_utils:id2proc_name(?MODULE, MyId), [Address, Port, MyId]).
 
 %% ===================================================================
 %% Supervisor callbacks

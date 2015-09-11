@@ -29,7 +29,7 @@ bootstrap_list(#node_config{id=Id, initial_peers=Peers} = _Node) ->
     [{Id, Address, Port} || {Address, Port} <- Peers].
 
 connect_to({ConnectersId, Address, Port} = _ConnectInfo) ->
-    p2phun_peer_pool:connect(Address, Port, [ConnectersId]).
+    p2phun_peer_pool:connect(ConnectersId, Address, Port).
 
 stop(_State) ->
     ok.

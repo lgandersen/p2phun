@@ -14,7 +14,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1, add_peers/2, delete_peers/2, fetch_all/1, distance/2, add_and_return_peers_not_in_table/2]).
+-export([start_link/1, add_peers/2, delete_peers/2, fetch_all/1, distance/2, peers_not_in_table/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -38,8 +38,8 @@ delete_peers(MyId, Peers) ->
 fetch_all(MyId) ->
     gen_server:call(?SERVER_ID(MyId), fetch_all).
 
-add_and_return_peers_not_in_table(MyId, Peers) ->
-    gen_server:call(?SERVER_ID(MyId), {add_peers_not_in_table, wrap_in_list(Peers)}).
+peers_not_in_table(MyId, Peers) ->
+    gen_server:call(?SERVER_ID(MyId), {peers_not_in_table, wrap_in_list(Peers)}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -53,9 +53,9 @@ init([Id]) ->
 handle_call(fetch_all, _From, State) ->
     Peers = [Peer || [Peer] <- ets:match(State#state.tablename, '$1')],
     {reply, Peers, State};
-handle_call({add_peers_not_in_table, Peers}, _From, State) ->
-    PeersAdded = add_peers_not_in_table_(State#state.tablename, Peers),
-    {reply, PeersAdded, State};
+handle_call({peers_not_in_table, Peers}, _From, State) ->
+    PeersNotInTable = peers_not_in_table_(State#state.tablename, Peers),
+    {reply, PeersNotInTable, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -89,12 +89,7 @@ delete_peers_(Tablename, Peers) ->
     DeletePeer = fun(Peer) -> ets:delete(Tablename, peer2record(Peer)) end,
     lists:foreach(DeletePeer, Peers).
 
-add_peers_not_in_table_(Tablename, Peers) ->
-    Peers2Add = filter_peers_not_in_table(Tablename, Peers),
-    add_peers_(Tablename, Peers2Add),
-    Peers2Add.
-
-filter_peers_not_in_table(Tablename, Peers) ->
+peers_not_in_table_(Tablename, Peers) ->
     NotInTable =
         fun(Peer) ->
             case ets:lookup(Tablename, Peer#peer.id) of

@@ -9,7 +9,13 @@ init(Count, #peerstate{my_id=MyId, peer_pid=PeerPid} = State) ->
         true ->
             p2phun_peer:request_peerlist(PeerPid, self()),
             receive {got_peerlist, Peers} -> ok end,
-            p2phun_peertable:add_and_return_peers_not_in_table(MyId, Peers),
+            Peers2Add = p2phun_peertable:peers_not_in_table(MyId, Peers),
+            %% Need to fix port-problem before this can be finished
+%            case lists:length(Peers2Add) > 0 of
+%                true -> [p2phun_peer_pool:connect(MyId, Address, Port) || ]
+%                false -> ok
+%            end,
+            lager:info("Peers to add from received list: ~p", [Peers2Add]),
             NewCount = 0;
         false ->
             NewCount = Count + 1

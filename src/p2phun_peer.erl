@@ -55,7 +55,7 @@ handle_event(send_pong, StateName, State) ->
     {next_state, StateName, State};
 handle_event(send_peerlist, StateName, State) ->
     Peers = p2phun_peertable:fetch_all(State#peerstate.my_id),
-    send_hello(State),
+    send({peer_list, Peers}, State),
     {next_state, StateName, State}.
 
 handle_sync_event(_Event, _From, _StName, StData) ->
@@ -73,6 +73,7 @@ code_change(_OldVsn, StName, StData, _Extra) -> {ok, StName, StData}.
 %% ------------------------------------------------------------------
 awaiting_hello({got_hello, PeerId}, #peerstate{my_id=MyId, sock=Sock} = State) ->
     {ok, [{Address, Port}]} = inet:peernames(Sock),
+    % Need to fix port-problem before continuing
     %-record(peer, {id, port, address, listening_port=none, peer_pid=none}).
     %#peer{id=PeerId, port=Port
     p2phun_peertable:add_peers(MyId, {PeerId, Address, Port}), %Should we save PeerPid as well? This is probably the interface
@@ -101,7 +102,6 @@ connected(_SomeEvent, _From, State) ->
     {next_state, connected, State}.
 
 awaiting_pong(got_pong, #peerstate{callers_pid=CallersPid} = State) ->
-    lager:info("Got pong!"),
     CallersPid ! pong,
     {next_state, connected, State}.
 
