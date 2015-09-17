@@ -17,7 +17,7 @@ start(_StartType, _StartArgs) ->
     Nodes = [
         #node_config{id=1, ip="127.0.0.1", port=5001, initial_peers=[{"127.0.0.1", 5002}]},
         #node_config{id=2, ip="127.0.0.1", port=5002, initial_peers=[]},%{"127.0.0.1", 5001}]},
-        #node_config{id=3, ip="127.0.0.1", port=5003, initial_peers=[{"127.0.0.1", 5001}, {"127.0.0.1", 5002}]}
+        #node_config{id=3, ip="127.0.0.1", port=5003, initial_peers=[{"127.0.0.1", 5002}]} % {"127.0.0.1", 5001},
         ],
     Status = p2phun_sup:start_link(Nodes),
     ConnectionsToMake = lists:flatten(lists:map(fun bootstrap_list/1, Nodes)),

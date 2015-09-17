@@ -42,8 +42,8 @@ got_pong(PeerPid) ->
 %% ------------------------------------------------------------------
 %% gen_fsm Function Definitions
 %% ------------------------------------------------------------------
-init(#peerstate{we_connected=WeConnected, my_id=MyId} = State) when WeConnected == true ->
-    send({hello, {id, MyId}}, State),
+init(#peerstate{we_connected=WeConnected} = State) when WeConnected == true ->
+    send_hello(State),
     {ok, awaiting_hello, State};
 init(#peerstate{we_connected=WeConnected} = State) when WeConnected == false ->
     {ok, awaiting_hello, State};
@@ -54,7 +54,7 @@ handle_event(send_pong, StateName, State) ->
     send(pong, State),
     {next_state, StateName, State};
 handle_event(send_peerlist, StateName, State) ->
-    Peers = p2phun_peertable:fetch_all(State#peerstate.my_id),
+    Peers = p2phun_peertable:fetch_all_servers(State#peerstate.my_id),
     send({peer_list, Peers}, State),
     {next_state, StateName, State}.
 
@@ -71,12 +71,11 @@ code_change(_OldVsn, StName, StData, _Extra) -> {ok, StName, StData}.
 %% ------------------------------------------------------------------
 %% gen_fsm State Function Definitions
 %% ------------------------------------------------------------------
-awaiting_hello({got_hello, PeerId}, #peerstate{my_id=MyId, sock=Sock} = State) ->
+awaiting_hello({got_hello, #hello{id=PeerId, server_port=ListeningPort} = _Hello}, #peerstate{my_id=MyId, sock=Sock, peer_pid=PeerPid} = State) ->
+    lager:info("Node-~p: Got hello from node ~p", [MyId, PeerId]),
     {ok, [{Address, Port}]} = inet:peernames(Sock),
-    % Need to fix port-problem before continuing
-    %-record(peer, {id, port, address, listening_port=none, peer_pid=none}).
-    %#peer{id=PeerId, port=Port
-    p2phun_peertable:add_peers(MyId, {PeerId, Address, Port}), %Should we save PeerPid as well? This is probably the interface
+    Peer = #peer{id=PeerId, address=Address, connection_port=Port, server_port=ListeningPort, peer_pid=PeerPid},
+    p2phun_peertable:add_peers(MyId, [Peer]),
     case State#peerstate.we_connected of
       false -> send_hello(State);
       true -> ok
@@ -87,11 +86,9 @@ awaiting_hello(SomeEvent, #peerstate{my_id=MyId} = State) ->
     {next_state, initializing, State}.
 
 connected({ping, CallersPid}, State) ->
-    lager:info("Pinging peer.."),
     send(ping, State),
     {next_state, awaiting_pong, State#peerstate{callers_pid=CallersPid}};
 connected({request_peerlist, CallersPid}, State) ->
-    lager:info("Saa sender vi sgu en reqeust for peerlisten!"),
     send(request_peerlist, State),
     {next_state, awaiting_peerlist, State#peerstate{callers_pid=CallersPid}};
 connected(_SomeEvent, State) ->
@@ -112,12 +109,13 @@ awaiting_peerlist(SomeEvent, State) ->
     lager:info("Event '~p' was not expected now. State: '~p'.", [SomeEvent, State]),
     {error, awaiting_peerlist}.
 
-
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 send_hello(#peerstate{my_id=MyId} = State) ->
-    send({hello, {id, MyId}}, State).
+    ListeningPort = p2phun_node_configuration:listening_port(MyId),
+    HelloMsg = #hello{id=MyId, server_port=ListeningPort},
+    send({hello, HelloMsg}, State).
 
 send(Msg, #peerstate{transport=Transport, sock=Sock} = _State) ->
     Transport:send(Sock, term_to_binary(Msg)).

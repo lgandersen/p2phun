@@ -3,7 +3,7 @@
 -behaviour(gen_server).
 
 %% API
--export([start_link/2]).
+-export([start_link/2, listening_port/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
@@ -16,8 +16,10 @@
 %%%===================================================================
 
 start_link(Id, ListeningPort) ->
-    lager:info("AAAWWWW YIIIIIIIIIZZZ"),
     gen_server:start_link({local, ?MODULE_ID(Id)}, ?MODULE, [Id, ListeningPort], []).
+
+listening_port(Id) ->
+    gen_server:call(?MODULE_ID(Id), listening_port).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -26,9 +28,10 @@ start_link(Id, ListeningPort) ->
 init([Id, ListeningPort]) ->
     {ok, #state{my_id=Id, listening_port=ListeningPort}}.
 
+handle_call(listening_port, _From, State) ->
+    {reply, State#state.listening_port, State};
 handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
+    {reply, error, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.

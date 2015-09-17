@@ -3,9 +3,9 @@
 
 -import(p2phun_utils, [id2proc_name/2]).
 
--define(SERVER, ?MODULE).
+-include_lib("stdlib/include/ms_transform.hrl").
+
 -define(MODULE_ID(Id), id2proc_name(?MODULE, Id)).
--define(SERVER_ID(Id), ?MODULE_ID(Id)).
 
 -include("peer.hrl").
 
@@ -14,7 +14,7 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/1, add_peers/2, delete_peers/2, fetch_all/1, distance/2, peers_not_in_table/2]).
+-export([start_link/1, add_peers/2, delete_peers/2, fetch_peer/2, fetch_all/1, fetch_all_servers/1, distance/2, peers_not_in_table/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -27,19 +27,26 @@
 %% ------------------------------------------------------------------
 
 start_link(Id) ->
-    gen_server:start_link({local, ?SERVER_ID(Id)}, ?MODULE, [Id], []).
+    gen_server:start_link({local, ?MODULE_ID(Id)}, ?MODULE, [Id], []).
 
 add_peers(MyId, Peers) ->
-    gen_server:cast(?SERVER_ID(MyId), {add_peers, wrap_in_list(Peers)}).
+    gen_server:cast(?MODULE_ID(MyId), {add_peers, Peers}).
 
 delete_peers(MyId, Peers) ->
-    gen_server:cast(?SERVER_ID(MyId), {delete_peers, wrap_in_list(Peers)}).
+    gen_server:cast(?MODULE_ID(MyId), {delete_peers, Peers}).
+
+fetch_peer(MyId, PeerId) ->
+    gen_server:call(?MODULE_ID(MyId), {fetch_peer, PeerId}).
 
 fetch_all(MyId) ->
-    gen_server:call(?SERVER_ID(MyId), fetch_all).
+    gen_server:call(?MODULE_ID(MyId), fetch_all).
+
+fetch_all_servers(MyId) ->
+    gen_server:call(?MODULE_ID(MyId), fetch_all_servers).
 
 peers_not_in_table(MyId, Peers) ->
-    gen_server:call(?SERVER_ID(MyId), {peers_not_in_table, wrap_in_list(Peers)}).
+    gen_server:call(?MODULE_ID(MyId), {peers_not_in_table, Peers}).
+
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -50,8 +57,15 @@ init([Id]) ->
     ets:new(Tablename, [ordered_set, named_table, {keypos, 2}]),
     {ok, #state{id=Id, tablename=Tablename}}.
 
+handle_call({fetch_peer, PeerId}, _From, State) ->
+    Peer = ets:lookup(State#state.tablename, PeerId),
+    {reply, Peer, State};
 handle_call(fetch_all, _From, State) ->
     Peers = [Peer || [Peer] <- ets:match(State#state.tablename, '$1')],
+    {reply, Peers, State};
+handle_call(fetch_all_servers, _From, State) ->
+    MatchSpec = ets:fun2ms(fun(#peer{server_port=Port} = Peer) when (Port =/= none) -> Peer end),
+    Peers = [Peer || Peer <- ets:select(State#state.tablename, MatchSpec)],
     {reply, Peers, State};
 handle_call({peers_not_in_table, Peers}, _From, State) ->
     PeersNotInTable = peers_not_in_table_(State#state.tablename, Peers),
@@ -91,8 +105,8 @@ delete_peers_(Tablename, Peers) ->
 
 peers_not_in_table_(Tablename, Peers) ->
     NotInTable =
-        fun(Peer) ->
-            case ets:lookup(Tablename, Peer#peer.id) of
+        fun(#peer{id=Id} = _Peer) ->
+            case ets:lookup(Tablename, Id) of
                 [] -> true;
                 _ -> false
             end
@@ -105,12 +119,7 @@ distance(BaseId, Id) ->
         false -> (?MAX_PEERID - BaseId) + Id
     end.
 
-wrap_in_list(ListOfObjects) when is_list(ListOfObjects) ->
-    ListOfObjects;
-wrap_in_list(Object) ->
-    [Object].
-
-peer2record(#peer{id=_Id, port=_Port, address=_Address} = Peer) ->
+peer2record(#peer{id=_Id, server_port=_Port, address=_Address} = Peer) ->
     Peer;
 peer2record({Id, Address, Port} = _Peer) ->
-    #peer{id=Id, address=Address, port=Port}.
+    #peer{id=Id, address=Address, server_port=Port}.

@@ -14,25 +14,26 @@
 
 %% Helper macro for declaring children of supervisor
 -define(CHILD(I, Type), {I, {I, start_link, []}, temporary, 5000, Type, [I]}).
+-define(MODULE_ID(Id), p2phun_utils:id2proc_name(?MODULE, Id)).
 
 %% ===================================================================
 %% API functions
 %% ===================================================================
 
 %% @doc Start Pool supervisor.
-start_link(Id) ->
-    lager:info("Starting peer no. ~p\n", [Id]),
-    supervisor:start_link({local, p2phun_utils:id2proc_name(?MODULE, Id)}, ?MODULE, []).
+start_link(MyId) ->
+    lager:info("Starting peer no. ~p\n", [MyId]),
+    supervisor:start_link({local, ?MODULE_ID(MyId)}, ?MODULE, []).
 
 %% @private 
 %% Ranch callback
-start_link(ListenerId, Socket, Transport, [Id] = Opts) ->
-    lager:info("Incoming peer for id ~p!\n", [Id]),
-    supervisor:start_child(p2phun_utils:id2proc_name(?MODULE, Id), [ListenerId, Socket, Transport, Opts]).
+start_link(ListenerId, Socket, Transport, [MyId] = Opts) ->
+    lager:info("Incoming peer for id ~p!\n", [MyId]),
+    supervisor:start_child(?MODULE_ID(MyId), [ListenerId, Socket, Transport, Opts]).
 
 %% Connect to a new peer
 connect(MyId, Address, Port) ->
-    supervisor:start_child(p2phun_utils:id2proc_name(?MODULE, MyId), [Address, Port, MyId]).
+    supervisor:start_child(?MODULE_ID(MyId), [Address, Port, MyId]).
 
 %% ===================================================================
 %% Supervisor callbacks

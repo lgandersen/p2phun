@@ -30,7 +30,6 @@ start_link(Address, Port, Opts) ->
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
-
 %% They connect
 init(Ref, Sock, Transport, [MyId] = _Opts) ->
     ok = proc_lib:init_ack({ok, self()}),
@@ -47,7 +46,6 @@ init([Address, Port, MyId]) ->
     case gen_tcp:connect(Address, Port, [binary, {packet, 4}, {active, once}], 10000) of
         {ok, Sock} -> 
             State = initialize(MyId, Address, Port, Sock, gen_tcp, true),
-            lager:info("Id ~p successly connected to peer at port ~p", [MyId, Port]),
             {ok, State};
         {error, Reason} ->
             {stop, {connection_error, Reason}}
@@ -64,18 +62,22 @@ initialize(MyId, Address, Port, Sock, Transport, WeConnected) ->
     {ok, PeerPid} = p2phun_peer:start_link(PeerState),
     PeerState#peerstate{peer_pid=PeerPid}.
 
-
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({tcp, Sock, RawData}, #peerstate{my_id=MyId, sock=Sock, peer_pid=PeerPid, port=Port} = State) ->
+handle_info({tcp, Sock, RawData}, #peerstate{my_id=MyId, sock=Sock, peer_pid=PeerPid} = State) ->
     case binary_to_term(RawData) of
-        {hello, {id, PeerId}} ->
-            lager:info("Node-~p: Hello from node ~p on port ~p.", [MyId, PeerId, Port]),
-            p2phun_peer:got_hello(PeerPid, PeerId),
+        {hello, #hello{id=PeerId} = HelloMsg} ->
             % Make check here to verify that we are not already connected to this node!
+            case p2phun_peertable:fetch_peer(MyId, PeerId) of
+                [] -> ok;
+                _ ->
+                  lager:info("Saa lukker & slukker vi!"),
+                  ok = supervisor:terminate_child(p2phun_utils:id2proc_name(p2phun_peer_pool, MyId), self())
+            end,
+            p2phun_peer:got_hello(PeerPid, HelloMsg),
             name_me(MyId, PeerId),
             NewState = State#peerstate{peer_id=PeerId},
             spawn_link(p2phun_peer_manager, init, [0, NewState]);
@@ -86,7 +88,6 @@ handle_info({tcp, Sock, RawData}, #peerstate{my_id=MyId, sock=Sock, peer_pid=Pee
             p2phun_peer:got_pong(PeerPid),
             NewState = State;
        request_peerlist ->
-            lager:info("Peer request !!!! to ~p from ~p", [MyId, Port]),
             p2phun_peer:send_peerlist(PeerPid),
             NewState = State;
        {peer_list, Peers} ->
