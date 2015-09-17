@@ -70,7 +70,6 @@ handle_cast(_Msg, State) ->
 handle_info({tcp, Sock, RawData}, #peerstate{my_id=MyId, sock=Sock, peer_pid=PeerPid} = State) ->
     case binary_to_term(RawData) of
         {hello, #hello{id=PeerId} = HelloMsg} ->
-            % Make check here to verify that we are not already connected to this node!
             case p2phun_peertable:fetch_peer(MyId, PeerId) of
                 [] -> ok;
                 _ ->

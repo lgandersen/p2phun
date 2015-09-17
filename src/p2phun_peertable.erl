@@ -119,7 +119,6 @@ distance(BaseId, Id) ->
         false -> (?MAX_PEERID - BaseId) + Id
     end.
 
-peer2record(#peer{id=_Id, server_port=_Port, address=_Address} = Peer) ->
-    Peer;
+peer2record(Peer) when is_record(Peer, peer) -> Peer;
 peer2record({Id, Address, Port} = _Peer) ->
     #peer{id=Id, address=Address, server_port=Port}.
