@@ -1,4 +1,5 @@
 -module(p2phun_peer_manager).
+-import(p2phun_utils, [lager_info/3, lager_info/2]).
 -include("peer.hrl").
 -export([init/2]).
 
@@ -13,7 +14,7 @@ init(Count, #peerstate{my_id=MyId, peer_pid=PeerPid} = State) ->
                 [] ->
                     ok;
                  _ ->
-                    lager:info("Peers to add from received list: ~p", [Peers2Add])
+                    lager_info(MyId, "Peer-list received.")
             end,
             lists:foreach(
                 fun(#peer{address=Address, server_port=Port}=_Peer) -> p2phun_peer_pool:connect(MyId, Address, Port) end,
@@ -25,5 +26,5 @@ init(Count, #peerstate{my_id=MyId, peer_pid=PeerPid} = State) ->
     timer:sleep(1000),
     p2phun_peer:request_pong(PeerPid, self()),
     receive pong -> ok
-    after 5000 -> lager:info("Peer not responding to pong in 5 seconds. Should be dropped.") end,
+    after 5000 -> lager_info(MyId, "Peer not responding to pong in 5 seconds. Should be dropped.") end,
     init(NewCount, State).

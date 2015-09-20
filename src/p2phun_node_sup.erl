@@ -11,7 +11,6 @@
 -export([init/1]).
 
 %% Helper macro for declaring children of supervisor
--define(MODULE_ID(Id), p2phun_utils:id2proc_name(?MODULE, Id)).
 
 %% ===================================================================
 %% API functions
@@ -25,25 +24,33 @@ start_link(#node_config{id=Id} = Node) ->
 %% ===================================================================
 init([#node_config{id=Id, port=Port} = _Node]) ->
     NodeProcesses = [
-        {% peertable
-            {peertable, Id},
-            {p2phun_peertable, start_link, [Id]},
-            permanent, 2000, worker, []
+        #{% peertable
+            id => {peertable, Id},
+            start => {p2phun_peertable, start_link, [Id]},
+            restart => permanent,
+            shutdown => 2000,
+            type => worker
         },
-        {% port listener
-            {ranch_listener, Id},
-            {ranch, start_listener, [{p2phun_peer_pool, Id}, 2, ranch_tcp, [{port, Port}], p2phun_peer_pool, [Id]]},
-            permanent, 2000, supervisor, []
+        #{% port listener
+            id => {ranch_listener, Id},
+            start => {ranch, start_listener, [{p2phun_peer_pool, Id}, 2, ranch_tcp, [{port, Port}], p2phun_peer_pool, [Id]]},
+            restart => permanent,
+            shutdown => 2000,
+            type => supervisor
         },
-        {% peer pool
-            {peer_pool, Id},
-            {p2phun_peer_pool, start_link, [Id]},
-            permanent, 2000, supervisor, []
+        #{% peer pool
+            id => {peer_pool, Id},
+            start => {p2phun_peer_pool, start_link, [Id]},
+            restart => permanent,
+            shutdown => 2000,
+            type => supervisor
         },
-        {% peer configuration
-            {peer_configuration, Id},
-            {p2phun_node_configuration, start_link, [Id, Port]},
-            permanent, 2000, supervisor, []
+        #{% peer configuration
+            id => {peer_configuration, Id},
+            start => {p2phun_node_configuration, start_link, [Id, Port]},
+            restart => permanent,
+            shutdown => 2000,
+            type => supervisor
         }
         ],
     {ok, {{rest_for_one, 5, 10}, NodeProcesses}}.

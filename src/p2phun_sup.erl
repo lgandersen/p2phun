@@ -28,7 +28,11 @@ start_link(Nodes) ->
 init([Nodes]) ->
     NodeSupervisors = lists:map(
         fun(#node_config{id=Id} = Node) ->
-            {{peertable, Id}, {p2phun_node_sup, start_link, [Node]}, permanent, 2000, supervisor, []}
+            #{id => {p2phun_node_supervisor, Id},
+              start => {p2phun_node_sup, start_link, [Node]},
+              restart => permanent,
+              shutdown => 5000,
+              type => supervisor}
         end,
         Nodes
         ),

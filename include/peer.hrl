@@ -5,3 +5,5 @@
 
 %-define(MAX_PEERID, binary_to_integer(float_to_binary(math:pow(2,128), [{decimals, 0}]))).
 -define(MAX_PEERID, binary_to_integer(float_to_binary(1.0e3, [{decimals, 0}]))).
+
+-define(MODULE_ID(Id), p2phun_utils:id2proc_name(?MODULE, Id)).

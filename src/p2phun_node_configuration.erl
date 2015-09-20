@@ -2,13 +2,13 @@
 
 -behaviour(gen_server).
 
+-include("peer.hrl").
 %% API
 -export([start_link/2, listening_port/1]).
 
 %% gen_server callbacks
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--define(MODULE_ID(Id), p2phun_utils:id2proc_name(?MODULE, Id)).
 -record(state, {my_id, listening_port}).
 
 %%%===================================================================

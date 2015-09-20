@@ -3,6 +3,9 @@
 -behaviour(ranch_protocol).
 -behaviour(supervisor).
 
+-import(p2phun_utils, [lager_info/3, lager_info/2]).
+-include("peer.hrl").
+
 %% API
 -export([start_link/1, connect/3]).
 
@@ -14,7 +17,6 @@
 
 %% Helper macro for declaring children of supervisor
 -define(CHILD(I, Type), {I, {I, start_link, []}, temporary, 5000, Type, [I]}).
--define(MODULE_ID(Id), p2phun_utils:id2proc_name(?MODULE, Id)).
 
 %% ===================================================================
 %% API functions
@@ -22,13 +24,13 @@
 
 %% @doc Start Pool supervisor.
 start_link(MyId) ->
-    lager:info("Starting peer no. ~p\n", [MyId]),
+    lager_info(MyId, "Starting up!"),
     supervisor:start_link({local, ?MODULE_ID(MyId)}, ?MODULE, []).
 
 %% @private 
 %% Ranch callback
 start_link(ListenerId, Socket, Transport, [MyId] = Opts) ->
-    lager:info("Incoming peer for id ~p!\n", [MyId]),
+    lager_info(MyId, "Incoming peer."),
     supervisor:start_child(?MODULE_ID(MyId), [ListenerId, Socket, Transport, Opts]).
 
 %% Connect to a new peer

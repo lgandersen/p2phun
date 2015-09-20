@@ -1,6 +1,7 @@
 -module(p2phun_peer_connection).
 -behaviour(gen_server).
 -behaviour(ranch_protocol).
+-import(p2phun_utils, [lager_info/3, lager_info/2]).
 -include("peer.hrl").
 
 %% ------------------------------------------------------------------
@@ -73,7 +74,7 @@ handle_info({tcp, Sock, RawData}, #peerstate{my_id=MyId, sock=Sock, peer_pid=Pee
             case p2phun_peertable:fetch_peer(MyId, PeerId) of
                 [] -> ok;
                 _ ->
-                  lager:info("Saa lukker & slukker vi!"),
+                  lager_info(MyId, "Saa lukker & slukker vi!"),
                   ok = supervisor:terminate_child(p2phun_utils:id2proc_name(p2phun_peer_pool, MyId), self())
             end,
             p2phun_peer:got_hello(PeerPid, HelloMsg),

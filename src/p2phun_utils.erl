@@ -1,6 +1,6 @@
 -module(p2phun_utils).
 
--export([id2proc_name/2, peer_process_name/2]).
+-export([id2proc_name/2, peer_process_name/2, lager_info/3, lager_info/2]).
 
 id2proc_name(BaseName, Id) when is_atom(BaseName), is_integer(Id) -> 
     id2proc_name(BaseName, integer_to_binary(Id));
@@ -13,3 +13,8 @@ peer_process_name(MyId, PeerId) ->
     PeerIdBin = integer_to_binary(PeerId),   
     ProcessName = <<<<"peer_myid">>/binary, MyIdBin/binary, <<"_peerid">>/binary, PeerIdBin/binary>>,
     binary_to_atom(ProcessName, 'utf8').
+
+lager_info(Id, Msg) ->
+    lager_info(Id, Msg, []).
+lager_info(Id, Msg, Param) ->
+    lager:info("Node-~p: " ++ Msg, [Id] ++ Param).

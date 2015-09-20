@@ -1,15 +1,13 @@
 -module(p2phun_peertable).
 -behaviour(gen_server).
 
--import(p2phun_utils, [id2proc_name/2]).
+-import(p2phun_utils, [lager_info/3]).
+-include("peer.hrl").
 
 -include_lib("stdlib/include/ms_transform.hrl").
 
--define(MODULE_ID(Id), id2proc_name(?MODULE, Id)).
-
--include("peer.hrl").
-
 -record(state, {tablename, id}).
+
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
@@ -53,7 +51,7 @@ peers_not_in_table(MyId, Peers) ->
 %% ------------------------------------------------------------------
 
 init([Id]) ->
-    Tablename = id2proc_name(peers, Id),
+    Tablename = p2phun_utils:id2proc_name(peers, Id),
     ets:new(Tablename, [ordered_set, named_table, {keypos, 2}]),
     {ok, #state{id=Id, tablename=Tablename}}.
 
