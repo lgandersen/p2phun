@@ -71,11 +71,11 @@ handle_cast(_Msg, State) ->
 handle_info({tcp, Sock, RawData}, #peerstate{my_id=MyId, sock=Sock, peer_pid=PeerPid} = State) ->
     case binary_to_term(RawData) of
         {hello, #hello{id=PeerId} = HelloMsg} ->
-            case p2phun_peertable:fetch_peer(MyId, PeerId) of
-                [] -> ok;
-                _ ->
+            case p2phun_peertable:insert_if_not_exists(MyId, PeerId) of
+                peer_inserted -> ok;
+                peer_exists ->
                   lager_info(MyId, "Saa lukker & slukker vi!"),
-                  ok = supervisor:terminate_child(p2phun_utils:id2proc_name(p2phun_peer_pool, MyId), self())
+                  supervisor:terminate_child(p2phun_utils:id2proc_name(p2phun_peer_pool, MyId), self())
             end,
             p2phun_peer:got_hello(PeerPid, HelloMsg),
             name_me(MyId, PeerId),
