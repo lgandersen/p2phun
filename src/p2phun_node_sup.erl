@@ -22,7 +22,7 @@ start_link(#node_config{id=Id} = Node) ->
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
-init([#node_config{id=Id, port=Port} = _Node]) ->
+init([#node_config{id=Id, address={_Ip, Port}} = _Node]) ->
     NodeProcesses = [
         #{% peertable
             id => {peertable, Id},

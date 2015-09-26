@@ -24,7 +24,7 @@ init(Count, #peerstate{my_id=MyId, peer_pid=PeerPid} = State) ->
             NewCount = Count + 1
     end,
     timer:sleep(1000),
-    p2phun_peer:request_pong(PeerPid, self()),
-    receive pong -> ok
-    after 5000 -> lager_info(MyId, "Peer not responding to pong in 5 seconds. Should be dropped.") end,
+%    p2phun_peer:request_pong(PeerPid, self()),
+%    receive pong -> ok
+%    after 5000 -> lager_info(MyId, "Peer not responding to pong in 5 seconds. Should be dropped.") end,
     init(NewCount, State).

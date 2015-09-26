@@ -17,15 +17,29 @@
 %% API functions
 %% ===================================================================
 
-start_link(Nodes) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [Nodes]).
+start_link({Nodes, JsonApiConf}) ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [{Nodes, JsonApiConf}]).
 
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
 
-init([Nodes]) ->
+init([{Nodes, {_JsonAPIAddress, JsonAPIPort}}]) ->
+     JsonApi =
+        #{% port listener
+            id => p2phun_json_api,
+            start => {ranch, start_listener, [json_api_listener, 1, ranch_tcp, [{port, JsonAPIPort}], p2phun_json_api, []]}, %Evt. fix binary, {packet, 0}
+            restart => permanent,
+            shutdown => 2000,
+            type => supervisor
+        },
+        %  id => ,
+        %  start => {p2phun_json_api, start_link, [JsonAPIAddress, ]},
+        %  restart => permanent,
+        %  shutdown => 5000,
+        %  type => worker
+        %  },
     NodeSupervisors = lists:map(
         fun(#node_config{id=Id} = Node) ->
             #{id => {p2phun_node_supervisor, Id},
@@ -36,4 +50,4 @@ init([Nodes]) ->
         end,
         Nodes
         ),
-    {ok, {{one_for_one, 5, 10}, NodeSupervisors}}.
+    {ok, {{one_for_one, 5, 10}, [JsonApi | NodeSupervisors]}}.
