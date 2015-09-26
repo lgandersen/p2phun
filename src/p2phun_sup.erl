@@ -27,19 +27,13 @@ start_link({Nodes, JsonApiConf}) ->
 
 init([{Nodes, {_JsonAPIAddress, JsonAPIPort}}]) ->
      JsonApi =
-        #{% port listener
+        #{
             id => p2phun_json_api,
             start => {ranch, start_listener, [json_api_listener, 1, ranch_tcp, [{port, JsonAPIPort}], p2phun_json_api, []]}, %Evt. fix binary, {packet, 0}
             restart => permanent,
             shutdown => 2000,
             type => supervisor
         },
-        %  id => ,
-        %  start => {p2phun_json_api, start_link, [JsonAPIAddress, ]},
-        %  restart => permanent,
-        %  shutdown => 5000,
-        %  type => worker
-        %  },
     NodeSupervisors = lists:map(
         fun(#node_config{id=Id} = Node) ->
             #{id => {p2phun_node_supervisor, Id},

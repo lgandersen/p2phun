@@ -72,7 +72,7 @@ class NodeConfig:
         return config_head + nodes + self.config_tail
 
 if __name__ == '__main__':
-    number_of_nodes = 3
+    number_of_nodes = 100 
     node_ids = range(2, number_of_nodes + 1)
     nodes= [Node(Address(5000 + n), n, init_peers=[Address(5000 + (n - 1))]) for n in node_ids]
     nodes.append(Node(Address(5001), 1, init_peers=[]))

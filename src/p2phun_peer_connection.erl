@@ -74,11 +74,9 @@ handle_info({tcp, Sock, RawData}, #peerstate{my_id=MyId, sock=Sock, peer_pid=Pee
             case p2phun_peertable:insert_if_not_exists(MyId, PeerId) of
                 peer_inserted -> ok;
                 peer_exists ->
-                  lager_info(MyId, "Saa lukker & slukker vi!"),
                   supervisor:terminate_child(p2phun_utils:id2proc_name(p2phun_peer_pool, MyId), self())
             end,
             p2phun_peer:got_hello(PeerPid, HelloMsg),
-            name_me(MyId, PeerId),
             NewState = State#peerstate{peer_id=PeerId},
             spawn_link(p2phun_peer_manager, init, [0, NewState]);
         ping ->
@@ -109,4 +107,3 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-name_me(MyId, PeerId) -> register(p2phun_utils:peer_process_name(MyId, PeerId), self()).

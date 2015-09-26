@@ -92,7 +92,6 @@ connected({request_peerlist, CallersPid}, State) ->
     send(request_peerlist, State),
     {next_state, awaiting_peerlist, State#peerstate{callers_pid=CallersPid}};
 connected(_SomeEvent, State) ->
-    lager:info("Saa har vi faet sagt halloej!"),
     {next_state, connected, State}.
 
 connected(_SomeEvent, _From, State) ->
@@ -106,7 +105,7 @@ awaiting_peerlist({got_peerlist, Peers}, #peerstate{callers_pid=CallersPid} = St
     CallersPid ! {got_peerlist, Peers},
     {next_state, connected, State#peerstate{callers_pid=no_receiver}};
 awaiting_peerlist(SomeEvent, State) ->
-    lager:info("Event '~p' was not expected now. State: '~p'.", [SomeEvent, State]),
+    lager:error("Event '~p' was not expected now. State: '~p'.", [SomeEvent, State]),
     {error, awaiting_peerlist}.
 
 %% ------------------------------------------------------------------
