@@ -7,7 +7,7 @@
 -include("peer.hrl").
 
 %% API
--export([start_link/1, connect/3]).
+-export([start_link/1, connect/3, connect_sync/3]).
 
 % Ranch callback
 -export([start_link/4]).
@@ -35,7 +35,11 @@ start_link(ListenerId, Socket, Transport, [MyId] = Opts) ->
 
 %% Connect to a new peer
 connect(MyId, Address, Port) ->
-    supervisor:start_child(?MODULE_ID(MyId), [Address, Port, MyId]).
+    supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, sup_pid => undefined}]).
+
+connect_sync(MyId, Address, Port) ->
+    {ok, Child} = supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, sup_pid => self()}]),
+    receive ok -> {connected, Child} end.
 
 %% ===================================================================
 %% Supervisor callbacks

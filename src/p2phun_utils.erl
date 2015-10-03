@@ -1,4 +1,5 @@
 -module(p2phun_utils).
+-include("peer.hrl").
 
 -export([id2proc_name/2, peer_process_name/2, lager_info/3, lager_info/2]).
 
@@ -17,4 +18,6 @@ peer_process_name(MyId, PeerId) ->
 lager_info(Id, Msg) ->
     lager_info(Id, Msg, []).
 lager_info(Id, Msg, Param) ->
-    lager:info("Node-~p: " ++ Msg, [Id] ++ Param).
+    lager:info("~p: " ++ Msg, [Id] ++ Param).
+
+%create_id({base64, Id}) -> etc.

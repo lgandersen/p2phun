@@ -10,8 +10,7 @@
 %% ===================================================================
 %% Application callbacks
 %% ===================================================================
-start() ->
-    application:ensure_all_started(p2phun).
+start() -> application:ensure_all_started(p2phun).
 
 start(_StartType, _StartArgs) ->
     {ok, Nodes} = application:get_env(p2phun, nodes),
@@ -22,8 +21,7 @@ start(_StartType, _StartArgs) ->
     {ok, SupPid}.
 
 bootstrap_list(#node_config{id=Id, bootstrap_peers=Peers} = _Node) ->
-    Connect = fun ({Address, Port} = _Peer) -> p2phun_peer_pool:connect(Id, Address, Port) end,
+    Connect = fun ({Address, Port} = _Peer) -> p2phun_peer_pool:connect_sync(Id, Address, Port) end,
     lists:foreach(Connect, Peers).
 
-stop(_State) ->
-    ok.
+stop(_State) -> ok.

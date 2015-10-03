@@ -25,22 +25,40 @@ init(Ref, Sock, Transport, _Opts = []) ->
 loop(#state{sock=Sock, transport=Transport, buffer=Buffer} = State) ->
     case Transport:recv(Sock, 0, 5000) of
         {ok, Data} ->
-            loop(decode_json(State#state{buffer= <<Buffer/binary, Data/binary>>}));
+            lager:info("Wooto ~p", [Data]),
+            NewState = decode_json(State#state{buffer= <<Buffer/binary, Data/binary>>}),
+            loop(NewState);
         _ ->
             ok = Transport:close(Sock)
     end.
 
 decode_json(#state{buffer=RawData} = State) ->
-    try jiffy:decode(RawData, [return_trailer]) of
+    try jiffy:decode(RawData, [return_trailer, return_maps]) of
         {has_trailer, EJSON, Rest} ->
-            parse_json(EJSON),
-            State#state{buffer=Rest};
+            parse_json(EJSON, State),
+            decode_json(State#state{buffer=Rest});
         EJSON ->
-            parse_json(EJSON),
+            parse_json(EJSON, State),
             State#state{buffer= <<>>}
     catch
         error:{13, invalid_string} -> State
     end.
 
-parse_json(EJSON) ->
+%-record(peer, {id, connection_port, address, server_port=none, peer_pid=none}).
+parse_json(#{<<"fun">> := <<"fetch_all">>, <<"args">> := MyId} = EJSON, State) ->
+    Response = [
+        {[{id, P#peer.id}, {address, address_to_binary(P#peer.address)}, {port, P#peer.server_port}]} ||
+        P <- p2phun_peertable:fetch_all(MyId)],
+    lager:info("Virker det?:~p", [Response]),
+    send(Response, State);
+parse_json(EJSON, State) ->
     lager:info("HER ER DER SGU NOGET JSON MAAYN:~p", [EJSON]).
+
+send(Msg, #state{transport=Transport, sock=Sock} = State) ->
+    Resp = jiffy:encode(Msg),
+    lager:info("V2222222et?:~p", [Resp]),
+    Transport:send(Sock, Resp).
+
+address_to_binary(Address) ->
+    [X, Y, Z, W] = [integer_to_binary(N) || N <- tuple_to_list(Address)],
+    <<X/binary, Y/binary, Z/binary, W/binary>>.

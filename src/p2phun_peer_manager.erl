@@ -1,10 +1,10 @@
 -module(p2phun_peer_manager).
 -import(p2phun_utils, [lager_info/3, lager_info/2]).
 -include("peer.hrl").
--export([init/2]).
+-export([init/3]).
 
 % Here we should do simple repeating tasks like fetching of peer information etc.
-init(Count, #peerstate{my_id=MyId, peer_pid=PeerPid} = State) ->
+init(Count, MyId, PeerPid) ->
     timer:sleep(1000),
     case Count > 0 of
         true ->
@@ -22,4 +22,4 @@ init(Count, #peerstate{my_id=MyId, peer_pid=PeerPid} = State) ->
 %    p2phun_peer:request_pong(PeerPid, self()),
 %    receive pong -> ok
 %    after 5000 -> lager_info(MyId, "Peer not responding to pong in 5 seconds. Should be dropped.") end,
-    init(NewCount, State).
+    init(NewCount, MyId, PeerPid).

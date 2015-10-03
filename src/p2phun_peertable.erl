@@ -1,7 +1,7 @@
 -module(p2phun_peertable).
 -behaviour(gen_server).
 
--import(p2phun_utils, [lager_info/3]).
+-import(p2phun_utils, [lager_info/3, lager_info/3]).
 -include("peer.hrl").
 
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -110,9 +110,9 @@ insert_if_not_exists_(PeerId, S) ->
     case fetch_peer_(PeerId, S) of
         [] -> 
             add_peers_(#peer{id=PeerId}, S),
-            peer_inserted;
+            peer_inserted; %{ok, peer_inserted}
         _ ->
-            peer_exists
+            peer_exists %{error, peer_exists}
     end.
 
 peers_not_in_table_(Tablename, Peers) ->
@@ -124,7 +124,3 @@ peers_not_in_table_(Tablename, Peers) ->
             end
         end,
     lists:filter(NotInTable, Peers).
-
-%peer2record(Peer) when is_record(Peer, peer) -> Peer;
-%peer2record({Id, Address, Port} = _Peer) ->
-%    #peer{id=Id, address=Address, server_port=Port}.

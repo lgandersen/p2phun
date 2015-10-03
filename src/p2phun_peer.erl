@@ -10,6 +10,7 @@
 %% State function exports
 -export([awaiting_hello/2, connected/2, connected/3, awaiting_peerlist/2, awaiting_pong/2]).
 
+-import(p2phun_utils, [lager_info/3, lager_info/2]).
 -include("peer.hrl").
 
 %% ------------------------------------------------------------------
@@ -62,6 +63,7 @@ handle_sync_event(_Event, _From, _StName, StData) ->
     {stop, unimplemented, StData}.
 
 handle_info(_Info, _StName, StData) ->
+    lager:info("Stiiill alive"),
     {stop, unimplemented, StData}.
 
 terminate(_Reason, _StName, _StData) -> ok.
@@ -71,39 +73,53 @@ code_change(_OldVsn, StName, StData, _Extra) -> {ok, StName, StData}.
 %% ------------------------------------------------------------------
 %% gen_fsm State Function Definitions
 %% ------------------------------------------------------------------
-awaiting_hello({got_hello, #hello{id=PeerId, server_port=ListeningPort} = _Hello}, #peerstate{my_id=MyId, sock=Sock, peer_pid=PeerPid} = State) ->
-    lager:info("Node-~p: Got hello from node ~p", [MyId, PeerId]),
-    {ok, [{Address, Port}]} = inet:peernames(Sock),
+awaiting_hello(
+    {got_hello, {#hello{id=PeerId, server_port=ListeningPort} = _Hello, CallersPid}},
+    #peerstate{my_id=MyId, address=Address, port=Port, peer_pid=PeerPid, connection_pid=ConnPid} = State) ->
+
+    lager_info(MyId, "Got hello from node ~p", [PeerId]),
+    case p2phun_peertable:insert_if_not_exists(MyId, PeerId) of %This should just check, not insert!
+        peer_inserted -> ok;
+        peer_exists ->
+          p2phun_peer_connection:close_connection(ConnPid),
+          %Send signal back here, if there is a caller
+          exit({ok, peer_already_connected})
+    end,
+    %{ok, [{Address, Port}]} = inet:peernames(Sock),
     Peer = #peer{id=PeerId, address=Address, connection_port=Port, server_port=ListeningPort, peer_pid=PeerPid},
     p2phun_peertable:add_peers(MyId, [Peer]),
     case State#peerstate.we_connected of
       false -> send_hello(State);
       true -> ok
     end,
+    case CallersPid of 
+        undefined -> ok;
+        _ -> CallersPid ! connected
+    end,
     {next_state, connected, State#peerstate{peer_id=PeerId}};
 awaiting_hello(SomeEvent, #peerstate{my_id=MyId} = State) ->
-    lager:warning("Node-~p: Say hello before doing ~p or anything else.", [MyId, SomeEvent]),
+    lager_info(MyId, "Say hello before doing ~p or anything else.", [SomeEvent]),
     {next_state, initializing, State}.
 
 connected({ping, CallersPid}, State) ->
     send(ping, State),
-    {next_state, awaiting_pong, State#peerstate{callers_pid=CallersPid}};
+    {next_state, awaiting_pong, State#peerstate{caller=CallersPid}};
 connected({request_peerlist, CallersPid}, State) ->
     send(request_peerlist, State),
-    {next_state, awaiting_peerlist, State#peerstate{callers_pid=CallersPid}};
+    {next_state, awaiting_peerlist, State#peerstate{caller=CallersPid}};
 connected(_SomeEvent, State) ->
     {next_state, connected, State}.
 
 connected(_SomeEvent, _From, State) ->
     {next_state, connected, State}.
 
-awaiting_pong(got_pong, #peerstate{callers_pid=CallersPid} = State) ->
+awaiting_pong(got_pong, #peerstate{caller=CallersPid} = State) ->
     CallersPid ! pong,
     {next_state, connected, State}.
 
-awaiting_peerlist({got_peerlist, Peers}, #peerstate{callers_pid=CallersPid} = State) ->
+awaiting_peerlist({got_peerlist, Peers}, #peerstate{caller=CallersPid} = State) ->
     CallersPid ! {got_peerlist, Peers},
-    {next_state, connected, State#peerstate{callers_pid=no_receiver}};
+    {next_state, connected, State#peerstate{caller=no_receiver}};
 awaiting_peerlist(SomeEvent, State) ->
     lager:error("Event '~p' was not expected now. State: '~p'.", [SomeEvent, State]),
     {error, awaiting_peerlist}.
@@ -116,5 +132,5 @@ send_hello(#peerstate{my_id=MyId} = State) ->
     HelloMsg = #hello{id=MyId, server_port=ListeningPort},
     send({hello, HelloMsg}, State).
 
-send(Msg, #peerstate{transport=Transport, sock=Sock} = _State) ->
-    Transport:send(Sock, term_to_binary(Msg)).
+send(Msg, #peerstate{send=Send} = _State) ->
+    Send(term_to_binary(Msg)).
