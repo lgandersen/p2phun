@@ -54,13 +54,12 @@ peers_not_in_table(MyId, Peers) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init([Id, RoutingTableSpeac]) -> %SpaceSize, BigBin_SpaceSize, BigBin_NodeSize, NumberOfSmallBins, SmallBin_NodeSize]) ->
+init([Id, RoutingTableSpeac]) ->
     #{smallbin_nodesize:=SmallBin_NodeSize,
     bigbin_nodesize:=BigBin_NodeSize,
     bigbin_spacesize:=BigBin_SpaceSize,
     number_of_smallbins:=NumberOfSmallBins,
     space_size:=SpaceSize} = RoutingTableSpeac,
-    %{ok, RoutingTableSpec} = application:get_env(p2phun, routing_table_config),
     Tablename = p2phun_utils:id2proc_name(peers, Id),
     ets:new(Tablename, [ordered_set, named_table, {keypos, 2}]),
     SmallBins = create_intervals(BigBin_SpaceSize, SpaceSize, NumberOfSmallBins),
@@ -109,6 +108,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 
+% Elaborate here
 add_peers_(Peers, S) ->
     ets:insert(S#state.tablename, Peers).
 
@@ -129,9 +129,9 @@ insert_if_not_exists_(PeerId, S) ->
     case fetch_peer_(PeerId, S) of
         [] -> 
             add_peers_([#peer{id=PeerId}], S),
-            peer_inserted; %{ok, peer_inserted}
+            peer_inserted;
         _ ->
-            peer_exists %{error, peer_exists}
+            peer_exists
     end.
 
 peers_not_in_table_(Peers, S) ->
@@ -162,7 +162,6 @@ create_intervals(Start, End, NumberOfBins) ->
 create_intervals_([Start,End|T], Intervals) -> 
     create_intervals_([End|T], [{Start, End}|Intervals]);
 create_intervals_([_Last], Intervals) -> lists:reverse(Intervals).
-    
 
 create_interval_sequence(Start, End, NumberOfBins) ->
     Length = End - Start,
@@ -176,5 +175,4 @@ create_interval_sequence_(Step, End, Rest, [LastKnot|T] = _Knots) when Step + La
         false -> create_interval_sequence_(Step, End, 0, [LastKnot + Step, LastKnot|T])
     end;
 create_interval_sequence_(_Step, End, 0, Knots) ->
-    InterValSeq = lists:reverse([End|Knots]),
-    [0|InterValSeq].
+    InterValSeq = lists:reverse([End|Knots]).

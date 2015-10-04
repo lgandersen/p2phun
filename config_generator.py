@@ -41,8 +41,6 @@ class Node:
             init_peers=init_peers)
 
 class RoutingTableSpec:
-    #space_size, bigbin_spacesize, bigbin_nodesize, number_of_smallbins, smallbin_nodesize):
-    #SpaceSize, BigBin_SpaceSize, BigBin_NodeSize, NumberOfSmallBins, SmallBin_NodeSize]
     argnames = set(['space_size', 'bigbin_spacesize', 'bigbin_nodesize', 'number_of_smallbins', 'smallbin_nodesize'])
     def __init__(self, **kwargs):
         if self.argnames != set(kwargs.keys()): raise Exception('Wrong arguments to RoutingTableSpec')

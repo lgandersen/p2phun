@@ -90,7 +90,7 @@ handle_info({tcp, Sock, RawData}, #state{my_id=MyId, peer_pid=PeerPid, sup_pid=S
             spawn_link(p2phun_peer_manager, init, [0, MyId, PeerPid]),
             State#state{peer_id=PeerId};
         ping ->
-            p2phun_peer:send_pong(PeerPid), State;
+            p2phun_peer:pong(PeerPid), State;
         pong ->
             p2phun_peer:got_pong(PeerPid), State;
        request_peerlist ->

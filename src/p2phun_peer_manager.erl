@@ -18,7 +18,10 @@ init(Count, MyId, PeerPid) ->
             NewCount = Count + 1
     end,
     timer:sleep(1000),
-%    p2phun_peer:request_pong(PeerPid, self()),
-%    receive pong -> ok
-%    after 5000 -> lager_info(MyId, "Peer not responding to pong in 5 seconds. Should be dropped.") end,
+    case p2phun_peer:ping(PeerPid) of
+        ping_timeout ->
+            % Perhaps take some action?
+            lager_info(MyId, "Peer not responding to pong in 5 seconds. Should be dropped.");
+        ok -> ok
+    end,
     init(NewCount, MyId, PeerPid).

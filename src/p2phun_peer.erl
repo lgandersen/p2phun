@@ -2,7 +2,7 @@
 -behaviour(gen_fsm).
 
 %% Api function exports
--export([start_link/1, got_hello/2, send_peerlist/1, request_peerlist/1, request_peerlist/2, got_peerlist/2, got_pong/1, request_pong/2, send_pong/1]).
+-export([start_link/1, got_hello/2, send_peerlist/1, request_peerlist/1, request_peerlist/2, got_peerlist/2, got_pong/1, ping/1, ping/2, pong/1]).
 
 %% gen_fsm exports
 -export([init/1, handle_event/3, handle_info/3, handle_sync_event/4, terminate/3, code_change/4]).
@@ -36,11 +36,15 @@ request_peerlist(PeerPid) ->
 got_peerlist(PeerPid, Peers) ->
     gen_fsm:send_event(PeerPid, {got_peerlist, Peers}).
 
-request_pong(PeerPid, CallersPid) ->
+ping(PeerPid) ->
+    gen_fsm:send_event(PeerPid, {ping, self()}),
+    receive pong -> ok
+    after 5000 -> ping_timeout end.
+ping(PeerPid, CallersPid) ->
     gen_fsm:send_event(PeerPid, {ping, CallersPid}).
 
-send_pong(PeerPid) ->
-    gen_fsm:send_all_state_event(PeerPid, send_pong).
+pong(PeerPid) ->
+    gen_fsm:send_all_state_event(PeerPid, pong).
 
 got_pong(PeerPid) ->
     gen_fsm:send_event(PeerPid, got_pong).
@@ -56,7 +60,7 @@ init(#peerstate{we_connected=WeConnected} = State) when WeConnected == false ->
 init(_State) ->
     {stop, state_unparseable}.
 
-handle_event(send_pong, StateName, State) ->
+handle_event(pong, StateName, State) ->
     send(pong, State),
     {next_state, StateName, State};
 handle_event(send_peerlist, StateName, State) ->
