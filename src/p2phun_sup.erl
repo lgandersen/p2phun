@@ -17,15 +17,14 @@
 %% API functions
 %% ===================================================================
 
-start_link({Nodes, JsonApiConf}) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [{Nodes, JsonApiConf}]).
-
+start_link({Nodes, JsonApiConf, RoutingTableSpec}) ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [{Nodes, RoutingTableSpec, JsonApiConf}]).
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
 
-init([{Nodes, {_JsonAPIAddress, JsonAPIPort}}]) ->
+init([{Nodes, RoutingTableSpec, {_JsonAPIAddress, JsonAPIPort}}]) ->
      JsonApi =
         #{
             id => p2phun_json_api,
@@ -37,7 +36,7 @@ init([{Nodes, {_JsonAPIAddress, JsonAPIPort}}]) ->
     NodeSupervisors = lists:map(
         fun(#node_config{id=Id} = Node) ->
             #{id => {p2phun_node_supervisor, Id},
-              start => {p2phun_node_sup, start_link, [Node]},
+              start => {p2phun_node_sup, start_link, [Node, RoutingTableSpec]},
               restart => permanent,
               shutdown => 5000,
               type => supervisor}

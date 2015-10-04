@@ -3,6 +3,10 @@
 
 -export([id2proc_name/2, peer_process_name/2, lager_info/3, lager_info/2]).
 
+-export([floor/1, ceiling/1]).
+
+-export([base64/1, bin/1, integer/2]).
+
 id2proc_name(BaseName, Id) when is_atom(BaseName), is_integer(Id) -> 
     id2proc_name(BaseName, integer_to_binary(Id));
 id2proc_name(BaseName, Id) when is_atom(BaseName), is_binary(Id) -> 
@@ -20,4 +24,35 @@ lager_info(Id, Msg) ->
 lager_info(Id, Msg, Param) ->
     lager:info("~p: " ++ Msg, [Id] ++ Param).
 
-%create_id({base64, Id}) -> etc.
+base64(Id_Int) when is_integer(Id_Int) ->
+    base64(integer_to_binary(Id_Int));
+base64(Id_Bin) when is_binary(Id_Bin) ->
+    base64:encode(Id_Bin).
+
+bin(Id_Int) when is_integer(Id_Int) ->
+    bin(base64(Id_Int));
+bin(Id_b64) when is_binary(Id_Bin) ->
+    base65:decode(Id_b64).
+
+integer(b64, Id_b64) -> 
+    integer(bin, base65:decode(Id_b64));
+integer(bin, Id_Bin) ->
+    binary:decode_unsigned(Id_Bin, little).
+
+floor(X) when X < 0 ->
+    T = trunc(X),
+    case X - T == 0 of
+        true -> T;
+        false -> T - 1
+    end;
+floor(X) -> 
+    trunc(X).
+
+ceiling(X) when X < 0 ->
+    trunc(X);
+ceiling(X) ->
+    T = trunc(X),
+    case X - T == 0 of
+        true -> T;
+        false -> T + 1
+    end.

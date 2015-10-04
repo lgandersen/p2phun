@@ -5,7 +5,7 @@
 -include("peer.hrl").
 
 %% API
--export([start_link/1]).
+-export([start_link/2]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -16,17 +16,19 @@
 %% API functions
 %% ===================================================================
 
-start_link(#node_config{id=Id} = Node) ->
-    supervisor:start_link({local, ?MODULE_ID(Id)}, ?MODULE, [Node]).
+start_link(#node_config{id=Id} = Node, RoutingTableSpec) ->
+    supervisor:start_link({local, ?MODULE_ID(Id)}, ?MODULE, [Node, RoutingTableSpec]).
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
-init([#node_config{id=Id, address={_Ip, Port}} = _Node]) ->
+    %[{smallbin_nodesize, 3}, {bigbin_nodesize, 10}, {bigbin_spacesize, 70368744177664}, {number_of_smallbins, 3}, {space_size, 281474976710656}]
+init([#node_config{id=Id, address={_Ip, Port}} = _Node, RoutingTableSpec]) ->
+   %#{smallbin_nodesize:=SmallBin_NodeSize, bigbin_nodesize:=BigBin_NodeSize, bigbin_spacesize:=BigBin_SpaceSize, number_of_smallbins:=NumberOfSmallBins, space_size:=SpaceSize} = _RTSpec]) ->
     NodeProcesses = [
         #{% peertable
             id => {peertable, Id},
-            start => {p2phun_peertable, start_link, [Id]},
+            start => {p2phun_peertable, start_link, [Id, RoutingTableSpec]},%, SpaceSize, BigBin_SpaceSize, BigBin_NodeSize, NumberOfSmallBins, SmallBin_NodeSize]},
             restart => permanent,
             shutdown => 2000,
             type => worker

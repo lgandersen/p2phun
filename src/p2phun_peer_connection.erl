@@ -41,7 +41,6 @@ close_connection(Pid) ->
 init(Ref, Sock, Transport, [MyId] = _Opts) ->
     ok = proc_lib:init_ack({ok, self()}),
     %% Perform any required state initialization here.
-    {ok, [{Address, Port}]} = inet:peernames(Sock),
     State = initialize(MyId, Sock, Transport, false, undefined),
     ok = Transport:setopts(Sock, [binary, {packet, 4}, {active, once}]),
     ok = ranch:accept_ack(Ref),
