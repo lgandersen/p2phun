@@ -68,7 +68,7 @@ init([Id, RoutingTableSpeac]) -> %SpaceSize, BigBin_SpaceSize, BigBin_NodeSize, 
         id=Id,
         tablename=Tablename,
         space_size=SpaceSize,
-        bigbin={0, BigBin_SpaceSize},
+        bigbin={-1, BigBin_SpaceSize}, % -1 s.t. 0-key will fall within this bin as well
         bigbin_size=BigBin_NodeSize,
         smallbins=SmallBins,
         smallbin_size=SmallBin_NodeSize
@@ -115,12 +115,12 @@ add_peers_(Peers, S) ->
 delete_peers_(Peers, S) ->
     lists:foreach(fun(Peer) -> ets:delete(S#state.tablename, Peer) end, Peers).
 
-fetch_all_(#state{tablename=Tablename} = S) ->
-    [Peer || [Peer] <- ets:match(Tablename, '$1')].
+fetch_all_(S) ->
+    [Peer || [Peer] <- ets:match(S#state.tablename, '$1')].
 
-fetch_all_servers_(#state{tablename=Tablename} = S)
+fetch_all_servers_(S) ->
     MatchSpec = ets:fun2ms(fun(#peer{server_port=Port} = Peer) when (Port =/= none) -> Peer end),
-    [Peer || Peer <- ets:select(Tablename, MatchSpec)].
+    [Peer || Peer <- ets:select(S#state.tablename, MatchSpec)].
 
 fetch_peer_(PeerId, S) ->
     ets:lookup(S#state.tablename, PeerId).
@@ -128,7 +128,7 @@ fetch_peer_(PeerId, S) ->
 insert_if_not_exists_(PeerId, S) ->
     case fetch_peer_(PeerId, S) of
         [] -> 
-            add_peers_(#peer{id=PeerId}, S),
+            add_peers_([#peer{id=PeerId}], S),
             peer_inserted; %{ok, peer_inserted}
         _ ->
             peer_exists %{error, peer_exists}
@@ -144,17 +144,15 @@ peers_not_in_table_(Peers, S) ->
         end,
     lists:filter(NotInTable, Peers).
 
-
-peers_in_bin({Start, End} = _Bin, #state{tablename=Tablename} = S) ->
+peers_in_bin({Start, End} = _Bin, S) ->
     MatchSpec = ets:fun2ms(
-        fun(#peer{id=Id} = Peer) when ((Id > Start) and (Id < End)) -> Peer end),
-    [Peer || Peer <- ets:select(Tablename, MatchSpec)].
+        fun(#peer{id=Id} = Peer) when ((Start < Id) and (Id =< End)) -> Peer end),
+    [Peer || Peer <- ets:select(S#state.tablename, MatchSpec)].
 
-
-find_peer_bin(PeerId, #state{bigbin=BigBin, smallbins=SmallBins} = State) ->
+find_peer_bin(PeerId, #state{bigbin=BigBin, smallbins=SmallBins} = _S) ->
     [Bin] = lists:filter(
-        fun({Start, End}) -> (PeerId > Start) and ( PeerId < End) end,
-        [Bigbin|SmallBins]).
+        fun({Start, End}) -> (Start < PeerId) and ( PeerId =< End) end,
+        [BigBin|SmallBins]),
     Bin.
 
 create_intervals(Start, End, NumberOfBins) ->

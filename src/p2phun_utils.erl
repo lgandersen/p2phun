@@ -5,7 +5,7 @@
 
 -export([floor/1, ceiling/1]).
 
--export([base64/1, bin/1, integer/2]).
+-export([b64/1, bin/1, int/2]).
 
 id2proc_name(BaseName, Id) when is_atom(BaseName), is_integer(Id) -> 
     id2proc_name(BaseName, integer_to_binary(Id));
@@ -22,22 +22,23 @@ peer_process_name(MyId, PeerId) ->
 lager_info(Id, Msg) ->
     lager_info(Id, Msg, []).
 lager_info(Id, Msg, Param) ->
-    lager:info("~p: " ++ Msg, [Id] ++ Param).
+    lager:info("~p: " ++ Msg, [b64(Id)] ++ Param).
 
-base64(Id_Int) when is_integer(Id_Int) ->
-    base64(integer_to_binary(Id_Int));
-base64(Id_Bin) when is_binary(Id_Bin) ->
+% using big endian
+b64(Id_Int) when is_integer(Id_Int) ->
+    b64(binary:encode_unsigned(Id_Int));
+b64(Id_Bin) when is_binary(Id_Bin) ->
     base64:encode(Id_Bin).
 
 bin(Id_Int) when is_integer(Id_Int) ->
-    bin(base64(Id_Int));
-bin(Id_b64) when is_binary(Id_Bin) ->
-    base65:decode(Id_b64).
+    binary:encode_unsigned(Id_Int);
+bin(Id_b64) when is_binary(Id_b64) ->
+    base64:decode(Id_b64).
 
-integer(b64, Id_b64) -> 
-    integer(bin, base65:decode(Id_b64));
-integer(bin, Id_Bin) ->
-    binary:decode_unsigned(Id_Bin, little).
+int(b64, Id_b64) ->
+    int(bin, base64:decode(Id_b64));
+int(bin, Id_Bin) ->
+    binary:decode_unsigned(Id_Bin).
 
 floor(X) when X < 0 ->
     T = trunc(X),

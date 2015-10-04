@@ -39,7 +39,10 @@ connect(MyId, Address, Port) ->
 
 connect_sync(MyId, Address, Port) ->
     {ok, Child} = supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, sup_pid => self()}]),
-    receive ok -> {connected, Child} end.
+    receive
+        ok -> {connected, Child};
+        peer_already_connected -> peer_already_connected
+    end.
 
 %% ===================================================================
 %% Supervisor callbacks

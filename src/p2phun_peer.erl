@@ -2,7 +2,7 @@
 -behaviour(gen_fsm).
 
 %% Api function exports
--export([start_link/1, got_hello/2, send_peerlist/1, request_peerlist/2, got_peerlist/2, got_pong/1, request_pong/2, send_pong/1]).
+-export([start_link/1, got_hello/2, send_peerlist/1, request_peerlist/1, request_peerlist/2, got_peerlist/2, got_pong/1, request_pong/2, send_pong/1]).
 
 %% gen_fsm exports
 -export([init/1, handle_event/3, handle_info/3, handle_sync_event/4, terminate/3, code_change/4]).
@@ -25,17 +25,22 @@ got_hello(PeerPid, PeerId) ->
 send_peerlist(PeerPid) ->
     gen_fsm:send_all_state_event(PeerPid, send_peerlist).
 
-send_pong(PeerPid) ->
-    gen_fsm:send_all_state_event(PeerPid, send_pong).
-
 request_peerlist(PeerPid, CallersPid) ->
     gen_fsm:send_event(PeerPid, {request_peerlist, CallersPid}).
+
+request_peerlist(PeerPid) ->
+    gen_fsm:send_event(PeerPid, {request_peerlist, self()}),
+    receive {got_peerlist, Peers} -> ok end,
+    Peers.
 
 got_peerlist(PeerPid, Peers) ->
     gen_fsm:send_event(PeerPid, {got_peerlist, Peers}).
 
 request_pong(PeerPid, CallersPid) ->
     gen_fsm:send_event(PeerPid, {ping, CallersPid}).
+
+send_pong(PeerPid) ->
+    gen_fsm:send_all_state_event(PeerPid, send_pong).
 
 got_pong(PeerPid) ->
     gen_fsm:send_event(PeerPid, got_pong).
@@ -77,25 +82,26 @@ awaiting_hello(
     {got_hello, {#hello{id=PeerId, server_port=ListeningPort} = _Hello, CallersPid}},
     #peerstate{my_id=MyId, address=Address, port=Port, peer_pid=PeerPid, connection_pid=ConnPid} = State) ->
 
+    NotifyCaller = fun(Msg) ->
+        case CallersPid of
+            undefined -> ok;
+            _ -> CallersPid ! Msg
+        end end,
     lager_info(MyId, "Got hello from node ~p", [PeerId]),
     case p2phun_peertable:insert_if_not_exists(MyId, PeerId) of %This should just check, not insert!
         peer_inserted -> ok;
         peer_exists ->
           p2phun_peer_connection:close_connection(ConnPid),
-          %Send signal back here, if there is a caller
-          exit({ok, peer_already_connected})
+          NotifyCaller(peer_already_connected),
+          exit({peer_already_connected})
     end,
-    %{ok, [{Address, Port}]} = inet:peernames(Sock),
     Peer = #peer{id=PeerId, address=Address, connection_port=Port, server_port=ListeningPort, peer_pid=PeerPid},
     p2phun_peertable:add_peers(MyId, [Peer]),
     case State#peerstate.we_connected of
       false -> send_hello(State);
       true -> ok
     end,
-    case CallersPid of 
-        undefined -> ok;
-        _ -> CallersPid ! connected
-    end,
+    NotifyCaller(ok),
     {next_state, connected, State#peerstate{peer_id=PeerId}};
 awaiting_hello(SomeEvent, #peerstate{my_id=MyId} = State) ->
     lager_info(MyId, "Say hello before doing ~p or anything else.", [SomeEvent]),
