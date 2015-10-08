@@ -45,16 +45,16 @@ decode_json(#state{buffer=RawData} = State) ->
     end.
 
 %-record(peer, {id, connection_port, address, server_port=none, peer_pid=none}).
-parse_json(#{<<"fun">> := <<"fetch_all">>, <<"args">> := MyId} = EJSON, State) ->
+parse_json(#{<<"fun">> := <<"fetch_all">>, <<"args">> := MyId}, State) ->
     Response = [
         {[{id, P#peer.id}, {address, address_to_binary(P#peer.address)}, {port, P#peer.server_port}]} ||
         P <- p2phun_peertable:fetch_all(MyId)],
     lager:info("Virker det?:~p", [Response]),
     send(Response, State);
-parse_json(EJSON, State) ->
+parse_json(EJSON, _State) ->
     lager:info("HER ER DER SGU NOGET JSON MAAYN:~p", [EJSON]).
 
-send(Msg, #state{transport=Transport, sock=Sock} = State) ->
+send(Msg, #state{transport=Transport, sock=Sock}) ->
     Resp = jiffy:encode(Msg),
     lager:info("V2222222et?:~p", [Resp]),
     Transport:send(Sock, Resp).

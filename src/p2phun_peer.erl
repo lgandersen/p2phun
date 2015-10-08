@@ -83,29 +83,27 @@ code_change(_OldVsn, StName, StData, _Extra) -> {ok, StName, StData}.
 %% gen_fsm State Function Definitions
 %% ------------------------------------------------------------------
 awaiting_hello(
-    {got_hello, {#hello{id=PeerId, server_port=ListeningPort} = _Hello, CallersPid}},
+    {got_hello, {#hello{id=PeerId, server_port=ListeningPort}, CallersPid}},
     #peerstate{my_id=MyId, address=Address, port=Port, peer_pid=PeerPid, connection_pid=ConnPid} = State) ->
-
     NotifyCaller = fun(Msg) ->
         case CallersPid of
             undefined -> ok;
             _ -> CallersPid ! Msg
         end end,
     lager_info(MyId, "Got hello from node ~p", [PeerId]),
-    case p2phun_peertable:insert_if_not_exists(MyId, PeerId) of %This should just check, not insert!
-        peer_inserted -> ok;
-        peer_exists ->
-          p2phun_peer_connection:close_connection(ConnPid),
-          NotifyCaller(peer_already_connected),
-          exit({peer_already_connected})
-    end,
     Peer = #peer{id=PeerId, address=Address, connection_port=Port, server_port=ListeningPort, peer_pid=PeerPid},
-    p2phun_peertable:add_peers(MyId, [Peer]),
+    case p2phun_peertable:add_peer_if_possible(MyId, Peer) of
+            peer_added ->
+                NotifyCaller(ok);
+            FailureReason ->
+                p2phun_peer_connection:close_connection(ConnPid),
+                NotifyCaller(FailureReason),
+                exit({FailureReason})
+    end,
     case State#peerstate.we_connected of
       false -> send_hello(State);
       true -> ok
     end,
-    NotifyCaller(ok),
     {next_state, connected, State#peerstate{peer_id=PeerId}};
 awaiting_hello(SomeEvent, #peerstate{my_id=MyId} = State) ->
     lager_info(MyId, "Say hello before doing ~p or anything else.", [SomeEvent]),

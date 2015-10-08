@@ -14,7 +14,7 @@
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
--export([start_link/2, add_peers/2, delete_peers/2, fetch_peer/2, fetch_all/1, fetch_all_servers/1, peers_not_in_table/2, insert_if_not_exists/2]).
+-export([start_link/2, add_peers/2, add_peer_if_possible/2, delete_peers/2, fetch_peer/2, fetch_all/1, fetch_all_servers/1, peers_not_in_table/2, insert_if_not_exists/2]).
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
@@ -30,6 +30,9 @@ start_link(Id, RoutingTableSpec) ->
 
 add_peers(MyId, Peers) ->
     gen_server:cast(?MODULE_ID(MyId), {add_peers, Peers}).
+
+add_peer_if_possible(MyId, Peer) ->
+    gen_server:call(?MODULE_ID(MyId), {add_peer_if_possible, Peer}).
 
 delete_peers(MyId, Peers) ->
     gen_server:cast(?MODULE_ID(MyId), {delete_peers, Peers}).
@@ -77,6 +80,8 @@ handle_call({fetch_peer, PeerId}, _From, State) ->
     {reply, fetch_peer_(PeerId, State), State};
 handle_call({insert_if_not_exists, PeerId}, _From, State) ->
     {reply, insert_if_not_exists_(PeerId, State), State};
+handle_call({add_peer_if_possible, Peer}, _From, State) ->
+    {reply, add_peer_if_possible_(Peer, State), State};
 handle_call(fetch_all, _From, State) ->
     {reply, fetch_all_(State), State};
 handle_call(fetch_all_servers, _From, State) ->
@@ -107,9 +112,38 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+add_peer_if_possible_(Peer, S) ->
+    case peer_already_in_table(Peer, S) of
+        true ->
+            already_in_table;
+        false ->
+            case room_for_peer(Peer, S) of
+                room_for_peer ->
+                    add_peers_([Peer], S),
+                    peer_added;
+                Failure -> Failure
+            end
+    end.
 
-% Elaborate here
+peer_already_in_table(Peer, S) ->
+    case fetch_peer_(Peer#peer.id, S) of
+        [] -> false;
+        _ -> true
+    end.
+
+room_for_peer(#peer{id=Id}, #state{id=MyId, bigbin_size=BigBin_Size, smallbin_size=SmallBin_Size} = S) ->
+    {Start, End} = bin_of_peer(distance(Id, MyId), S),
+    NumPeersInBin = length(peers_in_bin({Start, End}, S)),
+    if
+        ((Start > -1) and (NumPeersInBin < SmallBin_Size)) or
+        ((Start == -1) and (NumPeersInBin < BigBin_Size)) ->
+            room_for_peer;
+        true ->
+            peer_bin_full
+    end.
+
 add_peers_(Peers, S) ->
+    % Elaborate here
     ets:insert(S#state.tablename, Peers).
 
 delete_peers_(Peers, S) ->
@@ -144,14 +178,19 @@ peers_not_in_table_(Peers, S) ->
         end,
     lists:filter(NotInTable, Peers).
 
-peers_in_bin({Start, End} = _Bin, S) ->
-    MatchSpec = ets:fun2ms(
-        fun(#peer{id=Id} = Peer) when ((Start < Id) and (Id =< End)) -> Peer end),
-    [Peer || Peer <- ets:select(S#state.tablename, MatchSpec)].
+peers_in_bin({Start, End}, #state{id=MyId, tablename=Tablename}) ->
+    ets:foldl(
+        fun(#peer{id=Id} = Peer, Acc) ->
+            Dist = distance(MyId, Id),
+            if
+              (Dist > Start) and (Dist < End) -> [Peer|Acc];
+              true -> Acc
+            end
+        end, [], Tablename).
 
-find_peer_bin(PeerId, #state{bigbin=BigBin, smallbins=SmallBins} = _S) ->
+bin_of_peer(DistToPeer, #state{bigbin=BigBin, smallbins=SmallBins}) ->
     [Bin] = lists:filter(
-        fun({Start, End}) -> (Start < PeerId) and ( PeerId =< End) end,
+        fun({Start, End}) -> (Start < DistToPeer) and (DistToPeer =< End) end,
         [BigBin|SmallBins]),
     Bin.
 
@@ -175,4 +214,6 @@ create_interval_sequence_(Step, End, Rest, [LastKnot|T] = _Knots) when Step + La
         false -> create_interval_sequence_(Step, End, 0, [LastKnot + Step, LastKnot|T])
     end;
 create_interval_sequence_(_Step, End, 0, Knots) ->
-    InterValSeq = lists:reverse([End|Knots]).
+    lists:reverse([End|Knots]).
+
+distance(Id1, Id2) -> Id1 bxor Id2.
