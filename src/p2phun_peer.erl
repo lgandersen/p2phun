@@ -90,7 +90,7 @@ awaiting_hello(
             undefined -> ok;
             _ -> CallersPid ! Msg
         end end,
-    lager_info(MyId, "Got hello from node ~p", [PeerId]),
+    lager_info(MyId, "Got hello from node ~p", [p2phun_utils:b64(PeerId)]),
     Peer = #peer{id=PeerId, address=Address, connection_port=Port, server_port=ListeningPort, peer_pid=PeerPid},
     case p2phun_peertable:add_peer_if_possible(MyId, Peer) of
             peer_added ->

@@ -5,7 +5,6 @@ __pycache__
 /erl_crash.dump
 /ebin
 /.rebar
-/test
 /.eunit
 console.log
 *.beam

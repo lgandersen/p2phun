@@ -14,7 +14,7 @@
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
--export([start_link/2, add_peers/2, add_peer_if_possible/2, delete_peers/2, fetch_peer/2, fetch_all/1, fetch_all_servers/1, peers_not_in_table/2, insert_if_not_exists/2]).
+-export([start_link/2, sudo_add_peers/2, add_peer_if_possible/2, delete_peers/2, fetch_peer/2, fetch_all/1, fetch_all_servers/1, peers_not_in_table/2, insert_if_not_exists/2]).
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
@@ -28,8 +28,8 @@
 start_link(Id, RoutingTableSpec) ->
     gen_server:start_link({local, ?MODULE_ID(Id)}, ?MODULE, [Id, RoutingTableSpec], []).
 
-add_peers(MyId, Peers) ->
-    gen_server:cast(?MODULE_ID(MyId), {add_peers, Peers}).
+sudo_add_peers(MyId, Peers) ->
+    gen_server:cast(?MODULE_ID(MyId), {sudo_add_peers, Peers}).
 
 add_peer_if_possible(MyId, Peer) ->
     gen_server:call(?MODULE_ID(MyId), {add_peer_if_possible, Peer}).
@@ -70,7 +70,7 @@ init([Id, RoutingTableSpeac]) ->
         id=Id,
         tablename=Tablename,
         space_size=SpaceSize,
-        bigbin={-1, BigBin_SpaceSize}, % -1 s.t. 0-key will fall within this bin as well
+        bigbin={-1, BigBin_SpaceSize}, % -1 s.t. own key will fall within this bin as well
         bigbin_size=BigBin_NodeSize,
         smallbins=SmallBins,
         smallbin_size=SmallBin_NodeSize
@@ -91,8 +91,8 @@ handle_call({peers_not_in_table, Peers}, _From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast({add_peers, Peers}, State) ->
-    add_peers_(Peers, State),
+handle_cast({sudo_add_peers, Peers}, State) ->
+    sudo_add_peers_(Peers, State),
     {noreply, State};
 handle_cast({delete_peers, Peers}, State) ->
     delete_peers_(Peers, State),
@@ -118,8 +118,8 @@ add_peer_if_possible_(Peer, S) ->
             already_in_table;
         false ->
             case room_for_peer(Peer, S) of
-                room_for_peer ->
-                    add_peers_([Peer], S),
+                yes ->
+                    sudo_add_peers_([Peer], S),
                     peer_added;
                 Failure -> Failure
             end
@@ -137,13 +137,12 @@ room_for_peer(#peer{id=Id}, #state{id=MyId, bigbin_size=BigBin_Size, smallbin_si
     if
         ((Start > -1) and (NumPeersInBin < SmallBin_Size)) or
         ((Start == -1) and (NumPeersInBin < BigBin_Size)) ->
-            room_for_peer;
+            yes;
         true ->
-            peer_bin_full
+            bin_full
     end.
 
-add_peers_(Peers, S) ->
-    % Elaborate here
+sudo_add_peers_(Peers, S) ->
     ets:insert(S#state.tablename, Peers).
 
 delete_peers_(Peers, S) ->
@@ -162,21 +161,20 @@ fetch_peer_(PeerId, S) ->
 insert_if_not_exists_(PeerId, S) ->
     case fetch_peer_(PeerId, S) of
         [] -> 
-            add_peers_([#peer{id=PeerId}], S),
+            sudo_add_peers_([#peer{id=PeerId}], S),
             peer_inserted;
         _ ->
             peer_exists
     end.
 
 peers_not_in_table_(Peers, S) ->
-    NotInTable =
+    lists:filter(
         fun(#peer{id=Id} = _Peer) ->
             case fetch_peer_(Id, S) of
                 [] -> true;
                 _ -> false
             end
-        end,
-    lists:filter(NotInTable, Peers).
+        end, Peers).
 
 peers_in_bin({Start, End}, #state{id=MyId, tablename=Tablename}) ->
     ets:foldl(
