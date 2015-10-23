@@ -35,17 +35,17 @@ start_link(ListenerId, Socket, Transport, [MyId] = Opts) ->
 
 %% Connect to a new peer
 connect(MyId, Address, Port) ->
-    supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, sup_pid => undefined}]).
+    supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => []}]).
 
 connect_sync(MyId, Address, Port) ->
-    {ok, Child} = supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, sup_pid => self()}]),
+    {ok, Child} = supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => [{request_hello, self()}]}]),
     receive
-        ok -> {connected, Child};
-        peer_already_connected -> peer_already_connected
+        {ok, got_hello} -> {connected, Child};
+        {error, Reason} -> {error, Reason}
     end.
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
 init(_Id) ->
-    {ok, {{simple_one_for_one, 5, 10}, [?CHILD(p2phun_peer_connection, worker)]}}.
+    {ok, {{simple_one_for_one, 5, 10}, [?CHILD(p2phun_peer, worker)]}}.
