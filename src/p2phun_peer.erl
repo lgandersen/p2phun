@@ -13,7 +13,7 @@
 -import(p2phun_utils, [lager_info/3, lager_info/2]).
 -include("peer.hrl").
 
--record(state, {my_id, peer_id, we_connected, send, address, port, transport, sock, callers=[]}).
+-record(state, {my_id, peer_id, we_connected, send, address, port, transport, sock, last_timestamp=-1, callers=[]}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -35,8 +35,8 @@ ping(PeerPid) ->
     after 5000 -> ping_timeout end.
 
 %% ------------------------------------------------------------------
-%% Troll API Function Definitions (sending them out of context should
-%% produce errors)
+%% Troll API Function Definitions
+%% (sending them out of context should produce errors)
 %% ------------------------------------------------------------------
 pong(PeerPid) ->
     gen_fsm:send_all_state_event(PeerPid, pong).
@@ -81,7 +81,7 @@ handle_event(pong, StateName, State) ->
     send(pong, State),
     {next_state, StateName, State};
 handle_event(send_peerlist, StateName, State) ->
-    send_peerlist_(State),
+    send_peerlist_(State, -1),
     {next_state, StateName, State}.
 
 handle_sync_event(_Event, _From, _StName, StData) ->
@@ -97,8 +97,8 @@ handle_info({tcp, Sock, RawData}, StateName, #state{my_id=MyId} = State) ->
             send(pong, State), State;
         pong ->
             gen_fsm:send_event(self(), got_pong), State;
-       request_peerlist ->
-            send_peerlist_(State), State;
+       {request_peerlist, {peer_age_above, TimeStamp}} ->
+            send_peerlist_(State, TimeStamp), State;
        {peer_list, Peers} ->
             gen_fsm:send_event(self(), {got_peerlist, Peers}), State;
         Other ->
@@ -121,7 +121,7 @@ code_change(_OldVsn, StName, StData, _Extra) -> {ok, StName, StData}.
 awaiting_hello(
     {got_hello, #hello{id=PeerId, server_port=ListeningPort}},
     #state{my_id=MyId, address=Address, port=Port, callers=Callers} = State) ->
-    Peer = #peer{id=PeerId, address=Address, connection_port=Port, server_port=ListeningPort},
+    Peer = #peer{id=PeerId, address=Address, connection_port=Port, server_port=ListeningPort, peer_pid=self(), time_added=erlang:system_time()},
     case p2phun_peertable:add_peer_if_possible(MyId, Peer) of
         peer_added ->
             NewCallers = notify_and_remove_callers(request_hello, {ok, got_hello}, Callers);
@@ -142,15 +142,16 @@ awaiting_hello(SomeEvent, #state{my_id=MyId} = State) ->
 connected({request_pong, CallersPid}, #state{callers=Callers} = State) ->
     send(ping, State),
     {next_state, connected, State#state{callers=add_caller({request_pong, CallersPid}, Callers)}};
-connected({request_peerlist, CallersPid}, #state{callers=Callers} = State) ->
-    send(request_peerlist, State),
+connected({request_peerlist, CallersPid}, #state{callers=Callers, last_timestamp=TimeStamp} = State) ->
+    send({request_peerlist, {peer_age_above, TimeStamp}}, State),
     {next_state, connected, State#state{callers=add_caller({request_peerlist, CallersPid}, Callers)}};
 connected(got_pong, #state{callers=Callers} = State) ->
     NewCallers = notify_and_remove_callers(request_pong, got_pong, Callers),
     {next_state, connected, State#state{callers=NewCallers}};
 connected({got_peerlist, Peers}, #state{callers=Callers} = State) ->
     NewCallers = notify_and_remove_callers(request_peerlist, {got_peerlist, Peers}, Callers),
-    {next_state, connected, State#state{callers=NewCallers}};
+    NewTimeStamp = update_timestamp(Peers, State),
+    {next_state, connected, State#state{callers=NewCallers, last_timestamp=NewTimeStamp}};
 connected(SomeEvent, #state{my_id=MyId} = State) ->
     lager_info(MyId, "Unexpected event '~p'.", [SomeEvent]),
     {stop, unexpected_event, State}.
@@ -166,15 +167,23 @@ send_hello(#state{my_id=MyId} = State) ->
     HelloMsg = #hello{id=MyId, server_port=ListeningPort},
     send({hello, HelloMsg}, State).
 
-send_peerlist_(State) ->
-    Peers = p2phun_peertable:fetch_all_servers(State#state.my_id),
+send_peerlist_(State, TimeStamp) ->
+    Peers = [Peer#peer{connection_port=none, peer_pid=none} || Peer <- p2phun_peertable:fetch_all_servers(State#state.my_id, TimeStamp)],
     send({peer_list, Peers}, State).
+
 
 send(Msg, #state{transport=Transport, sock=Sock} = _S) ->
     Transport:send(Sock, term_to_binary(Msg)).
 
 add_caller(Call, Callers) ->
     [Call|Callers].
+
+update_timestamp(Peers, State) ->
+    TimeStamps = [Peer#peer.time_added || Peer <- Peers],
+    case erlang:length(TimeStamps) of
+        0 -> State#state.last_timestamp;
+        _ -> lists:max(TimeStamps)
+    end.
 
 notify_and_remove_callers(RequestType, Event, Callers) ->
     lists:filter(

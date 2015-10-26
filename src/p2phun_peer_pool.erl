@@ -31,16 +31,16 @@ start_link(MyId) ->
 %% Ranch callback
 start_link(ListenerId, Socket, Transport, [MyId] = Opts) ->
     lager_info(MyId, "Incoming peer."),
-    supervisor:start_child(?MODULE_ID(MyId), [ListenerId, Socket, Transport, Opts]).
+    {ok, _ChildPid} = supervisor:start_child(?MODULE_ID(MyId), [ListenerId, Socket, Transport, Opts]).
 
 %% Connect to a new peer
 connect(MyId, Address, Port) ->
-    supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => []}]).
+    {ok, _ChildPid} = supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => []}]).
 
 connect_sync(MyId, Address, Port) ->
-    {ok, Child} = supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => [{request_hello, self()}]}]),
+    {ok, ChildPid} = supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => [{request_hello, self()}]}]),
     receive
-        {ok, got_hello} -> {connected, Child};
+        {ok, got_hello} -> {connected, ChildPid};
         {error, Reason} -> {error, Reason}
     end.
 

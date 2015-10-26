@@ -9,6 +9,7 @@ init(Count, MyId, PeerPid) ->
     case Count > 0 of
         true ->
             Peers = p2phun_peer:request_peerlist(PeerPid),
+            lager_info(MyId, "RECEIVED PEERS: ~p", [Peers]),
             Peers2Add = lists:filter(fun(#peer{id=Id} = _P) -> Id =/= MyId end, p2phun_peertable:peers_not_in_table(MyId, Peers)),
             lists:foreach(
                 fun(#peer{address=Address, server_port=Port}=_Peer) -> p2phun_peer_pool:connect(MyId, Address, Port) end,

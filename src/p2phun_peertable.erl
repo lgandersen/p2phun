@@ -14,7 +14,7 @@
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
--export([start_link/2, sudo_add_peers/2, add_peer_if_possible/2, delete_peers/2, fetch_peer/2, fetch_all/1, fetch_all_servers/1, peers_not_in_table/2, insert_if_not_exists/2]).
+-export([start_link/2, sudo_add_peers/2, add_peer_if_possible/2, delete_peers/2, fetch_peer/2, fetch_all/1, fetch_all_servers/2, peers_not_in_table/2, insert_if_not_exists/2]).
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
@@ -46,8 +46,8 @@ insert_if_not_exists(MyId, PeerId) ->
 fetch_all(MyId) ->
     gen_server:call(?MODULE_ID(MyId), fetch_all).
 
-fetch_all_servers(MyId) ->
-    gen_server:call(?MODULE_ID(MyId), fetch_all_servers).
+fetch_all_servers(MyId, TimeStamp) ->
+    gen_server:call(?MODULE_ID(MyId), {fetch_all_servers, TimeStamp}).
 
 peers_not_in_table(MyId, Peers) ->
     gen_server:call(?MODULE_ID(MyId), {peers_not_in_table, Peers}).
@@ -84,8 +84,8 @@ handle_call({add_peer_if_possible, Peer}, _From, State) ->
     {reply, add_peer_if_possible_(Peer, State), State};
 handle_call(fetch_all, _From, State) ->
     {reply, fetch_all_(State), State};
-handle_call(fetch_all_servers, _From, State) ->
-    {reply, fetch_all_servers_(State), State};
+handle_call({fetch_all_servers, TimeStamp}, _From, State) ->
+    {reply, fetch_all_servers_(TimeStamp, State), State};
 handle_call({peers_not_in_table, Peers}, _From, State) ->
     {reply, peers_not_in_table_(Peers, State), State};
 handle_call(_Request, _From, State) ->
@@ -151,8 +151,8 @@ delete_peers_(Peers, S) ->
 fetch_all_(S) ->
     [Peer || [Peer] <- ets:match(S#state.tablename, '$1')].
 
-fetch_all_servers_(S) ->
-    MatchSpec = ets:fun2ms(fun(#peer{server_port=Port} = Peer) when (Port =/= none) -> Peer end),
+fetch_all_servers_(TimeStamp, S) ->
+    MatchSpec = ets:fun2ms(fun(#peer{server_port=Port, time_added=TimeAdded} = Peer) when (Port =/= none), (TimeAdded > TimeStamp) -> Peer end),
     [Peer || Peer <- ets:select(S#state.tablename, MatchSpec)].
 
 fetch_peer_(PeerId, S) ->
