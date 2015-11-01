@@ -13,7 +13,7 @@
 -import(p2phun_utils, [lager_info/3, lager_info/2]).
 -include("peer.hrl").
 
--record(state, {my_id, peer_id, we_connected, send, address, port, transport, sock, last_timestamp=-1, callers=[]}).
+-record(state, {my_id, peer_id, we_connected, send, address, port, transport, sock, callers=[]}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -142,7 +142,8 @@ awaiting_hello(SomeEvent, #state{my_id=MyId} = State) ->
 connected({request_pong, CallersPid}, #state{callers=Callers} = State) ->
     send(ping, State),
     {next_state, connected, State#state{callers=add_caller({request_pong, CallersPid}, Callers)}};
-connected({request_peerlist, CallersPid}, #state{callers=Callers, last_timestamp=TimeStamp} = State) ->
+connected({request_peerlist, CallersPid}, #state{callers=Callers} = State) ->
+    TimeStamp = "Here should be a call to new peertable funciton that looks this infomation up",
     send({request_peerlist, {peer_age_above, TimeStamp}}, State),
     {next_state, connected, State#state{callers=add_caller({request_peerlist, CallersPid}, Callers)}};
 connected(got_pong, #state{callers=Callers} = State) ->
@@ -150,8 +151,8 @@ connected(got_pong, #state{callers=Callers} = State) ->
     {next_state, connected, State#state{callers=NewCallers}};
 connected({got_peerlist, Peers}, #state{callers=Callers} = State) ->
     NewCallers = notify_and_remove_callers(request_peerlist, {got_peerlist, Peers}, Callers),
-    NewTimeStamp = update_timestamp(Peers, State),
-    {next_state, connected, State#state{callers=NewCallers, last_timestamp=NewTimeStamp}};
+    update_timestamps(Peers, State),
+    {next_state, connected, State#state{callers=NewCallers}};
 connected(SomeEvent, #state{my_id=MyId} = State) ->
     lager_info(MyId, "Unexpected event '~p'.", [SomeEvent]),
     {stop, unexpected_event, State}.
@@ -163,7 +164,7 @@ connected(_SomeEvent, _From, State) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 send_hello(#state{my_id=MyId} = State) ->
-    ListeningPort = p2phun_node_configuration:listening_port(MyId),
+    ListeningPort = p2phun_connections_manager:listening_port(MyId),
     HelloMsg = #hello{id=MyId, server_port=ListeningPort},
     send({hello, HelloMsg}, State).
 
@@ -178,12 +179,15 @@ send(Msg, #state{transport=Transport, sock=Sock} = _S) ->
 add_caller(Call, Callers) ->
     [Call|Callers].
 
-update_timestamp(Peers, State) ->
-    TimeStamps = [Peer#peer.time_added || Peer <- Peers],
-    case erlang:length(TimeStamps) of
-        0 -> State#state.last_timestamp;
-        _ -> lists:max(TimeStamps)
-    end.
+update_timestamps([], #state{my_id=MyId, peer_id=PeerId} = _S) ->
+    p2phun_peertable:update_peer(MyId, PeerId, [
+        {last_peerlist_request, erlang:system_time(milli_seconds)},
+        {last_spoke, erlang:system_time(milli_seconds)}]);
+update_timestamps(Peers, #state{my_id=MyId, peer_id=PeerId} = _S) ->
+    p2phun_peertable:update_peer(MyId, PeerId, [
+        {last_peerlist_request, erlang:system_time(milli_seconds)},
+        {last_spoke, erlang:system_time(milli_seconds)},
+        {last_fetched_peer, lists:max([Peer#peer.time_added || Peer <- Peers])}]).
 
 notify_and_remove_callers(RequestType, Event, Callers) ->
     lists:filter(

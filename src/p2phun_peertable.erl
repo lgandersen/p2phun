@@ -14,7 +14,7 @@
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
--export([start_link/2, sudo_add_peers/2, add_peer_if_possible/2, delete_peers/2, fetch_peer/2, fetch_all/1, fetch_all_servers/2, peers_not_in_table/2, insert_if_not_exists/2]).
+-export([start_link/2, sudo_add_peers/2, add_peer_if_possible/2, delete_peers/2, fetch_peer/2, fetch_all/1, fetch_all_servers/2, peers_not_in_table/2, insert_if_not_exists/2, dirty_fetch_all_peers_to_ask_for_peers/2, dirty_fetch_all_peers_to_ping/2, update_peer/3]).
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
@@ -34,6 +34,9 @@ sudo_add_peers(MyId, Peers) ->
 add_peer_if_possible(MyId, Peer) ->
     gen_server:call(?MODULE_ID(MyId), {add_peer_if_possible, Peer}).
 
+update_peer(MyId, PeerId, Updates) ->
+    gen_server:cast(?MODULE_ID(MyId), {update_peer, PeerId, Updates}).
+
 delete_peers(MyId, Peers) ->
     gen_server:cast(?MODULE_ID(MyId), {delete_peers, Peers}).
 
@@ -45,6 +48,18 @@ insert_if_not_exists(MyId, PeerId) ->
 
 fetch_all(MyId) ->
     gen_server:call(?MODULE_ID(MyId), fetch_all).
+
+dirty_fetch_all_peers_to_ask_for_peers(MyId, MaxTimeSinceLastRequest) ->
+    Now = erlang:system_time(milli_seconds),
+    MatchSpec = ets:fun2ms(
+        fun(#peer{peer_pid=PeerPid, last_peerlist_request=LastRequest} = Peer) when (Now - LastRequest > MaxTimeSinceLastRequest) -> PeerPid end),
+    ets:select(p2phun_utils:id2proc_name(peers, MyId), MatchSpec).
+
+dirty_fetch_all_peers_to_ping(MyId, MaxTimeSinceLastSpoke) ->
+    Now = erlang:system_time(milli_seconds),
+    MatchSpec = ets:fun2ms(
+        fun(#peer{peer_pid=PeerPid, last_spoke=LastSpoke} = Peer) when (Now - LastSpoke > MaxTimeSinceLastSpoke) -> PeerPid end),
+    ets:select(p2phun_utils:id2proc_name(peers, MyId), MatchSpec).
 
 fetch_all_servers(MyId, TimeStamp) ->
     gen_server:call(?MODULE_ID(MyId), {fetch_all_servers, TimeStamp}).
@@ -97,6 +112,9 @@ handle_cast({sudo_add_peers, Peers}, State) ->
 handle_cast({delete_peers, Peers}, State) ->
     delete_peers_(Peers, State),
     {noreply, State};
+handle_cast({update_peer, PeerId, Updates}, State) ->
+    update_peer_(PeerId, Updates, State),
+    {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -112,6 +130,22 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+update_peer_(PeerId, Updates, S) ->
+    UpdatesMap = maps:from_list(Updates),
+    Fields = record_info(fields, peer),
+    [Peer] = fetch_peer_(PeerId, S),
+    [peer|Values] = tuple_to_list(Peer),
+    UpdatedValues = lists:map(
+        fun(Field) -> updating_peer(Field, UpdatesMap) end,
+        lists:zip(Fields, Values)),
+    sudo_add_peers_([list_to_tuple([peer | UpdatedValues])], S).
+
+updating_peer({FieldName, FieldValue}, Update) ->
+    case maps:is_key(FieldName, Update) of
+        true -> maps:get(FieldName, Update);
+        false -> FieldValue
+    end.
+
 add_peer_if_possible_(Peer, S) ->
     case peer_already_in_table(Peer, S) of
         true ->

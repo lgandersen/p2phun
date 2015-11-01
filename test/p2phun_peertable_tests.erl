@@ -5,7 +5,6 @@
 -include("peer.hrl").
 -record(state, {tablename, id, space_size, bigbin, bigbin_size, smallbins, smallbin_size}).
 
-% Plz 2 add some moar
 create_interval_sequence_test() ->
     [1,4,7,10] = p2phun_peertable:create_interval_sequence(1, 10, 3),
     [1,2,3,4,5,6,7,8,9,10] = p2phun_peertable:create_interval_sequence(1, 10, 5),
@@ -57,4 +56,20 @@ room_for_peer_test() ->
     MockState = mockstate(PeersInTable),
     bin_full = p2phun_peertable:room_for_peer(#peer{id=14}, MockState),
     bin_full = p2phun_peertable:room_for_peer(#peer{id=24}, MockState),
-    yes = p2phun_peertable:room_for_peer(#peer{id=44}, MockState).
+    yes = p2phun_peertable:room_for_peer(#peer{id=44}, MockState),
+    ets:delete(MockState#state.tablename).
+
+update_peer_test() ->
+    PeerId = 1337,
+    MockTime = 31337,
+    NewServerPort = 2337,
+    NewTimeAdded = erlang:system_time(milli_seconds),
+    PeersInTable = [#peer{id=PeerId, time_added=MockTime, last_fetched_peer=MockTime}],
+    MockState = mockstate(PeersInTable),
+    p2phun_peertable:update_peer_(PeerId, [{time_added, NewTimeAdded}, {server_port, NewServerPort}], MockState),
+    [Peer] = p2phun_peertable:fetch_peer_(PeerId, MockState),
+    MockTime = Peer#peer.last_fetched_peer,
+    0 = Peer#peer.last_peerlist_request,
+    NewServerPort = Peer#peer.server_port,
+    NewTimeAdded = Peer#peer.time_added,
+    ets:delete(MockState#state.tablename).

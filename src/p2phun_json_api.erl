@@ -7,10 +7,14 @@
 
 -export([start_link/4, init/4]).
 
+%-type state() :: {state, {sock, sock()}, {transport, transport()}, {buffer, binary()}}
+
+-dialyzer({nowarn_function, decode_json/1}).
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
+-spec start_link(Ref :: pid(), Socket::inet:socket(), Transport::atom(), Opts::[]) -> {ok, pid()}.
 start_link(Ref, Socket, Transport, Opts) ->
     Pid = spawn_link(?MODULE, init, [Ref, Socket, Transport, Opts]),
     {ok, Pid}.
@@ -44,7 +48,7 @@ decode_json(#state{buffer=RawData} = State) ->
         error:{13, invalid_string} -> State
     end.
 
-%-record(peer, {id, connection_port, address, server_port=none, peer_pid=none}).
+-spec parse_json(EJSON :: #{}, State :: #state{}) -> ok | {error, any()}.
 parse_json(#{<<"fun">> := <<"fetch_all">>, <<"args">> := MyId}, State) ->
     Response = [
         {[{id, P#peer.id}, {address, address_to_binary(P#peer.address)}, {port, P#peer.server_port}]} ||
@@ -53,6 +57,7 @@ parse_json(#{<<"fun">> := <<"fetch_all">>, <<"args">> := MyId}, State) ->
     send(Response, State);
 parse_json(EJSON, _State) ->
     lager:info("HER ER DER SGU NOGET JSON MAAYN:~p", [EJSON]).
+
 
 send(Msg, #state{transport=Transport, sock=Sock}) ->
     Resp = jiffy:encode(Msg),

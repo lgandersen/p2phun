@@ -46,12 +46,12 @@ init([#node_config{id=Id, address={_Ip, Port}} = _Node, RoutingTableSpec]) ->
             shutdown => 2000,
             type => supervisor
         },
-        #{% peer configuration
-            id => {peer_configuration, Id},
-            start => {p2phun_node_configuration, start_link, [Id, Port]},
+        #{% peer connections manager
+            id => {p2phun_connections_manager, Id},
+            start => {p2phun_connections_manager, start_link, [Id, Port]},
             restart => permanent,
             shutdown => 2000,
-            type => supervisor
+            type => worker
         }
         ],
     {ok, {{rest_for_one, 5, 10}, NodeProcesses}}.
