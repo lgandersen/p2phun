@@ -87,11 +87,10 @@ handle_event(send_peerlist, StateName, State) ->
 handle_sync_event(_Event, _From, _StName, StData) ->
     {stop, unimplemented, StData}.
 
-handle_info({tcp, Sock, RawData}, StateName, #state{my_id=MyId} = State) ->
+handle_info({tcp, Sock, RawData}, StateName, State) ->
     NewState = case binary_to_term(RawData) of
         {hello, #hello{id=PeerId} = HelloMsg} ->
             gen_fsm:send_event(self(), {got_hello, HelloMsg}),
-            spawn_link(p2phun_peer_manager, init, [0, MyId, self()]),
             State#state{peer_id=PeerId};
         ping ->
             send(pong, State), State;
@@ -142,8 +141,8 @@ awaiting_hello(SomeEvent, #state{my_id=MyId} = State) ->
 connected({request_pong, CallersPid}, #state{callers=Callers} = State) ->
     send(ping, State),
     {next_state, connected, State#state{callers=add_caller({request_pong, CallersPid}, Callers)}};
-connected({request_peerlist, CallersPid}, #state{callers=Callers} = State) ->
-    TimeStamp = "Here should be a call to new peertable funciton that looks this infomation up",
+connected({request_peerlist, CallersPid}, #state{callers=Callers, my_id=MyId, peer_id=PeerId} = State) ->
+    TimeStamp = p2phun_peertable:dirty_fetch_last_fetched_peer(MyId, PeerId),
     send({request_peerlist, {peer_age_above, TimeStamp}}, State),
     {next_state, connected, State#state{callers=add_caller({request_peerlist, CallersPid}, Callers)}};
 connected(got_pong, #state{callers=Callers} = State) ->
@@ -164,7 +163,7 @@ connected(_SomeEvent, _From, State) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 send_hello(#state{my_id=MyId} = State) ->
-    ListeningPort = p2phun_connections_manager:listening_port(MyId),
+    ListeningPort = p2phun_peertable:server_port(MyId),
     HelloMsg = #hello{id=MyId, server_port=ListeningPort},
     send({hello, HelloMsg}, State).
 

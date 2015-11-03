@@ -6,7 +6,7 @@
 
 -include_lib("stdlib/include/ms_transform.hrl").
 
--record(state, {tablename, id, space_size, bigbin, bigbin_size, smallbins, smallbin_size}).
+-record(state, {tablename, id, server_port, space_size, bigbin, bigbin_size, smallbins, smallbin_size}).
 
 -ifdef(TEST).
 -compile(export_all).
@@ -14,7 +14,7 @@
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
--export([start_link/2, sudo_add_peers/2, add_peer_if_possible/2, delete_peers/2, fetch_peer/2, fetch_all/1, fetch_all_servers/2, peers_not_in_table/2, insert_if_not_exists/2, dirty_fetch_all_peers_to_ask_for_peers/2, dirty_fetch_all_peers_to_ping/2, update_peer/3]).
+-export([start_link/3, server_port/1, sudo_add_peers/2, add_peer_if_possible/2, delete_peers/2, fetch_peer/2, fetch_all/1, fetch_all_servers/2, peers_not_in_table/2, insert_if_not_exists/2, dirty_fetch_all_peers_to_ask_for_peers/2, dirty_fetch_all_peers_to_ping/2, dirty_fetch_last_fetched_peer/2, update_peer/3]).
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
@@ -25,8 +25,11 @@
 %% API Function Definitions
 %% ------------------------------------------------------------------
 
-start_link(Id, RoutingTableSpec) ->
-    gen_server:start_link({local, ?MODULE_ID(Id)}, ?MODULE, [Id, RoutingTableSpec], []).
+start_link(Id, RoutingTableSpec, ServerPort) ->
+    gen_server:start_link({local, ?MODULE_ID(Id)}, ?MODULE, [Id, RoutingTableSpec, ServerPort], []).
+
+server_port(Id) ->
+    gen_server:call(?MODULE_ID(Id), server_port).
 
 sudo_add_peers(MyId, Peers) ->
     gen_server:cast(?MODULE_ID(MyId), {sudo_add_peers, Peers}).
@@ -53,13 +56,17 @@ dirty_fetch_all_peers_to_ask_for_peers(MyId, MaxTimeSinceLastRequest) ->
     Now = erlang:system_time(milli_seconds),
     MatchSpec = ets:fun2ms(
         fun(#peer{peer_pid=PeerPid, last_peerlist_request=LastRequest} = Peer) when (Now - LastRequest > MaxTimeSinceLastRequest) -> PeerPid end),
-    ets:select(p2phun_utils:id2proc_name(peers, MyId), MatchSpec).
+    ets:select(?PEER_TABLE(MyId), MatchSpec).
 
 dirty_fetch_all_peers_to_ping(MyId, MaxTimeSinceLastSpoke) ->
     Now = erlang:system_time(milli_seconds),
     MatchSpec = ets:fun2ms(
         fun(#peer{peer_pid=PeerPid, last_spoke=LastSpoke} = Peer) when (Now - LastSpoke > MaxTimeSinceLastSpoke) -> PeerPid end),
-    ets:select(p2phun_utils:id2proc_name(peers, MyId), MatchSpec).
+    ets:select(?PEER_TABLE(MyId), MatchSpec).
+
+dirty_fetch_last_fetched_peer(MyId, PeerId) ->
+    [Peer] = ets:lookup(?PEER_TABLE(MyId), PeerId),
+    Peer#peer.last_fetched_peer.
 
 fetch_all_servers(MyId, TimeStamp) ->
     gen_server:call(?MODULE_ID(MyId), {fetch_all_servers, TimeStamp}).
@@ -72,18 +79,18 @@ peers_not_in_table(MyId, Peers) ->
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
-init([Id, RoutingTableSpeac]) ->
+init([Id, RoutingTableSpeac, ServerPort]) ->
     #{smallbin_nodesize:=SmallBin_NodeSize,
     bigbin_nodesize:=BigBin_NodeSize,
     bigbin_spacesize:=BigBin_SpaceSize,
     number_of_smallbins:=NumberOfSmallBins,
     space_size:=SpaceSize} = RoutingTableSpeac,
-    Tablename = p2phun_utils:id2proc_name(peers, Id),
-    ets:new(Tablename, [ordered_set, named_table, {keypos, 2}]),
+    ets:new(?PEER_TABLE(Id), [ordered_set, named_table, {keypos, 2}]),
     SmallBins = create_intervals(BigBin_SpaceSize, SpaceSize, NumberOfSmallBins),
     {ok, #state{
         id=Id,
-        tablename=Tablename,
+        server_port=ServerPort,
+        tablename=?PEER_TABLE(Id),
         space_size=SpaceSize,
         bigbin={-1, BigBin_SpaceSize}, % -1 s.t. own key will fall within this bin as well
         bigbin_size=BigBin_NodeSize,
@@ -91,6 +98,8 @@ init([Id, RoutingTableSpeac]) ->
         smallbin_size=SmallBin_NodeSize
         }}.
 
+handle_call(server_port, _From, State) ->
+    {reply, State#state.server_port, State};
 handle_call({fetch_peer, PeerId}, _From, State) ->
     {reply, fetch_peer_(PeerId, State), State};
 handle_call({insert_if_not_exists, PeerId}, _From, State) ->
@@ -210,7 +219,7 @@ peers_not_in_table_(Peers, S) ->
             end
         end, Peers).
 
-peers_in_bin({Start, End}, #state{id=MyId, tablename=Tablename}) ->
+peers_in_bin({Start, End}, #state{id=MyId} = _S) ->
     ets:foldl(
         fun(#peer{id=Id} = Peer, Acc) ->
             Dist = distance(MyId, Id),
@@ -218,7 +227,7 @@ peers_in_bin({Start, End}, #state{id=MyId, tablename=Tablename}) ->
               (Dist > Start) and (Dist < End) -> [Peer|Acc];
               true -> Acc
             end
-        end, [], Tablename).
+        end, [], ?PEER_TABLE(MyId)).
 
 bin_of_peer(DistToPeer, #state{bigbin=BigBin, smallbins=SmallBins}) ->
     [Bin] = lists:filter(

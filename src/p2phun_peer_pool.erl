@@ -30,11 +30,13 @@ start_link(MyId) ->
 %% @private 
 %% Ranch callback
 start_link(ListenerId, Socket, Transport, [MyId] = Opts) ->
-    lager_info(MyId, "Incoming peer."),
+    {ok, [{Address, Port}]} = inet:peernames(Socket),
+    lager_info(MyId, "Incoming peer on ~p:~p.", [Address, Port]),
     {ok, _ChildPid} = supervisor:start_child(?MODULE_ID(MyId), [ListenerId, Socket, Transport, Opts]).
 
 %% Connect to a new peer
 connect(MyId, Address, Port) ->
+    lager_info(MyId, "Connecting to peer on ~p:~p.", [Address, Port]),
     {ok, _ChildPid} = supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => []}]).
 
 connect_sync(MyId, Address, Port) ->
