@@ -4,7 +4,6 @@ import base64
 
 KEY_SIZE = 6
 
-
 class Address:
     config_str = '{{"{ip}", {port}}}'
 

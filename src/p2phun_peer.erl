@@ -26,8 +26,11 @@ start_link(Address, Port, Opts) ->
 
 request_peerlist(PeerPid) ->
     gen_fsm:send_event(PeerPid, {request_peerlist, self()}),
-    receive {got_peerlist, Peers} -> ok end,
-    Peers.
+    receive {got_peerlist, Peers} -> Peers end.
+
+find_node(PeerPid, NodeId) ->
+    gen_fsm:send_event(PeerPid, {find_node, NodeId, self()}),
+    receive {find_node_result, SearchResult} -> SearchResult end.
 
 ping(PeerPid) ->
     gen_fsm:send_event(PeerPid, {request_pong, self()}),
@@ -100,6 +103,10 @@ handle_info({tcp, Sock, RawData}, StateName, State) ->
             send_peerlist_(State, TimeStamp), State;
        {peer_list, Peers} ->
             gen_fsm:send_event(self(), {got_peerlist, Peers}), State;
+       {find, {node, NodeId}} ->
+            search_node_and_send_result(NodeId, State);
+       {find_node_result, Result} ->
+            gen_fsm:send_event(self(), {find_node_result, Result}), State;
         Other ->
             lager:error("Could not parse input: ~p", [Other]), State
     end,
@@ -141,16 +148,22 @@ awaiting_hello(SomeEvent, #state{my_id=MyId} = State) ->
 connected({request_pong, CallersPid}, #state{callers=Callers} = State) ->
     send(ping, State),
     {next_state, connected, State#state{callers=add_caller({request_pong, CallersPid}, Callers)}};
-connected({request_peerlist, CallersPid}, #state{callers=Callers, my_id=MyId, peer_id=PeerId} = State) ->
-    TimeStamp = p2phun_peertable:dirty_fetch_last_fetched_peer(MyId, PeerId),
-    send({request_peerlist, {peer_age_above, TimeStamp}}, State),
-    {next_state, connected, State#state{callers=add_caller({request_peerlist, CallersPid}, Callers)}};
 connected(got_pong, #state{callers=Callers} = State) ->
     NewCallers = notify_and_remove_callers(request_pong, got_pong, Callers),
     {next_state, connected, State#state{callers=NewCallers}};
+connected({request_peerlist, Caller}, #state{callers=Callers, my_id=MyId, peer_id=PeerId} = State) ->
+    TimeStamp = p2phun_peertable:dirty_fetch_last_fetched_peer(MyId, PeerId),
+    send({request_peerlist, {peer_age_above, TimeStamp}}, State),
+    {next_state, connected, State#state{callers=add_caller({request_peerlist, Caller}, Callers)}};
 connected({got_peerlist, Peers}, #state{callers=Callers} = State) ->
     NewCallers = notify_and_remove_callers(request_peerlist, {got_peerlist, Peers}, Callers),
     update_timestamps(Peers, State),
+    {next_state, connected, State#state{callers=NewCallers}};
+connected({find_node, NodeId, Caller}, #state{callers=Callers} = State) ->
+    send({find_node, NodeId}, State),
+    {next_state, connected, State#state{callers=add_caller({request_peerlist, Caller}, Callers)}};
+connected({find_node_result, Result}, #state{callers=Callers} = State) ->
+    NewCallers = notify_and_remove_callers(find_node, {got_result, Result}, Callers),
     {next_state, connected, State#state{callers=NewCallers}};
 connected(SomeEvent, #state{my_id=MyId} = State) ->
     lager_info(MyId, "Unexpected event '~p'.", [SomeEvent]),
@@ -171,6 +184,13 @@ send_peerlist_(State, TimeStamp) ->
     Peers = [Peer#peer{connection_port=none, peer_pid=none} || Peer <- p2phun_peertable:fetch_all_servers(State#state.my_id, TimeStamp)],
     send({peer_list, Peers}, State).
 
+search_node_and_send_result(NodeId, #state{my_id=MyId} = State) ->
+    Peers = p2phun_peertable:dirty_fetch_peer_closest_to_id(MyId, NodeId),
+    SearchResult = case lists:keyfind(NodeId, 2, Peers) of
+        false -> {peers_closer, Peers};
+        Node -> {found_node, Node}
+    end,
+    send({find_node_result, SearchResult}, State).
 
 send(Msg, #state{transport=Transport, sock=Sock} = _S) ->
     Transport:send(Sock, term_to_binary(Msg)).

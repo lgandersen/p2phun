@@ -68,6 +68,18 @@ dirty_fetch_last_fetched_peer(MyId, PeerId) ->
     [Peer] = ets:lookup(?PEER_TABLE(MyId), PeerId),
     Peer#peer.last_fetched_peer.
 
+dirty_fetch_peer_closest_to_id(MyId, PeerId) ->
+    % Worst distance that should be acceptable (Should be dynamically defined at some point)
+    Neighbourhood = p2phun_utils:floor(?KEYSPACE_SIZE / 2),
+    MatchSpec = ets:fun2ms(
+        fun(#peer{id=Id, address=Address, server_port=Port} = _Peer) when (Id bxor PeerId < Neighbourhood) ->
+            #peer{id=Id, address=Address, server_port=Port} end),
+    ResultRaw = ets:select(?PEER_TABLE(MyId), MatchSpec, 100), %It should traverse the whole list at some point.
+    case ResultRaw of
+        '$end_of_table' -> [];
+        {Result, _} -> Result
+    end.
+
 fetch_all_servers(MyId, TimeStamp) ->
     gen_server:call(?MODULE_ID(MyId), {fetch_all_servers, TimeStamp}).
 
@@ -85,7 +97,7 @@ init([Id, RoutingTableSpeac, ServerPort]) ->
     bigbin_spacesize:=BigBin_SpaceSize,
     number_of_smallbins:=NumberOfSmallBins,
     space_size:=SpaceSize} = RoutingTableSpeac,
-    ets:new(?PEER_TABLE(Id), [ordered_set, named_table, {keypos, 2}]),
+    ets:new(?PEER_TABLE(Id), [set, named_table, {keypos, 2}]),
     SmallBins = create_intervals(BigBin_SpaceSize, SpaceSize, NumberOfSmallBins),
     {ok, #state{
         id=Id,

@@ -6,3 +6,5 @@
 -define(MODULE_ID(Id), p2phun_utils:id2proc_name(?MODULE, Id)).
 
 -define(PEER_TABLE(Id), p2phun_utils:id2proc_name(peer_table, Id)).
+
+-define(KEYSPACE_SIZE, math:pow(2, 6 * 8)). % Present keyspace_size as used in python config generator script
