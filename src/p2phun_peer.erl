@@ -1,5 +1,6 @@
 -module(p2phun_peer).
 -behaviour(gen_fsm).
+-include("peer.hrl").
 
 %% Api function exports
 -export([start_link/4, start_link/3, send_peerlist/1, request_peerlist/1, ping/1, pong/1]).
@@ -10,10 +11,18 @@
 %% State function exports
 -export([awaiting_hello/2, connected/2, connected/3]).
 
+%% Import general table functions
+-import(p2phun_peertable, []). %PLZ2fix
+
+%% Import routing table specific functions
+-import(p2phun_peertable_operations, []). %PLZ2FIX
+
+%% Import utils
 -import(p2phun_utils, [lager_info/3, lager_info/2]).
--include("peer.hrl").
 
 -record(state, {my_id, peer_id, we_connected, send, address, port, transport, sock, callers=[]}).
+
+-type id() :: non_neg_integer().
 
 %% ------------------------------------------------------------------
 %% API Function Definitions
@@ -127,7 +136,7 @@ code_change(_OldVsn, StName, StData, _Extra) -> {ok, StName, StData}.
 awaiting_hello(
     {got_hello, #hello{id=PeerId, server_port=ListeningPort}},
     #state{my_id=MyId, address=Address, port=Port} = State) ->
-    Peer = #peer{id=PeerId, address=Address, connection_port=Port, server_port=ListeningPort, peer_pid=self(), time_added=erlang:system_time()},
+    Peer = #peer{id=PeerId, address=Address, connection_port=Port, server_port=ListeningPort, pid=self(), time_added=erlang:system_time()},
     case p2phun_peertable:add_peer_if_possible(MyId, Peer) of
         peer_added ->
             NewCallers = notify_and_remove_callers(request_hello, {ok, got_hello}, State);
@@ -181,11 +190,13 @@ send_hello(#state{my_id=MyId} = State) ->
     send({hello, HelloMsg}, State).
 
 send_peerlist_(State, TimeStamp) ->
-    Peers = [Peer#peer{connection_port=none, peer_pid=none} || Peer <- p2phun_peertable:fetch_all_servers(State#state.my_id, TimeStamp)],
+    Peers = [Peer#peer{connection_port=none, pid=none} || Peer <- p2phun_peertable:fetch_all_servers(State#state.my_id, TimeStamp)],
     send({peer_list, Peers}, State).
 
 search_node_and_send_result(NodeId, #state{my_id=MyId} = State) ->
-    Peers = p2phun_peertable:dirty_fetch_peer_closest_to_id(MyId, NodeId),
+    % Worst distance that should be acceptable (Should be dynamically defined at some point)
+    Neighbourhood = p2phun_utils:floor(?KEYSPACE_SIZE / 2),
+    Peers = p2phun_peertable:dirty_fetch_peers_closest_to_id(MyId, NodeId, Neighbourhood),
     SearchResult = case lists:keyfind(NodeId, 2, Peers) of
         false -> {peers_closer, Peers};
         Node -> {found_node, Node}
@@ -206,7 +217,8 @@ update_timestamps(Peers, #state{my_id=MyId, peer_id=PeerId} = _S) ->
     p2phun_peertable:update_peer(MyId, PeerId, [
         {last_peerlist_request, erlang:system_time(milli_seconds)},
         {last_spoke, erlang:system_time(milli_seconds)},
-        {last_fetched_peer, lists:max([Peer#peer.time_added || Peer <- Peers])}]).
+        {last_fetched_peer, lists:max([Peer#peer.time_added || Peer <- Peers])}
+        ]).
 
 notify_and_remove_callers(RequestType, Event, #state{callers=Callers} = _S) ->
     lists:filter(

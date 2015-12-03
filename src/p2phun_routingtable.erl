@@ -2,6 +2,15 @@
 -behaviour(gen_server).
 
 -import(p2phun_utils, [lager_info/3, lager_info/3]).
+
+-import(p2phun_peertable_operations, [
+    peers_not_in_table_/2, insert_if_not_exists_/2,
+    fetch_all_servers_/2, update_peer_/3,
+    peer_already_in_table_/2, fetch_peers_closest_to_id_/3,
+    fetch_last_fetched_peer_/2, fetch_all_peers_to_ping_/2,
+    fetch_all_peers_to_ask_for_peers_/2, fetch_peer_/2,
+    fetch_all_/1, sudo_add_peers_/2, delete_peers_/2]).
+
 -include("peer.hrl").
 
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -14,7 +23,7 @@
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
--export([start_link/3, server_port/1, sudo_add_peers/2, add_peer_if_possible/2, delete_peers/2, fetch_peer/2, fetch_all/1, fetch_all_servers/2, peers_not_in_table/2, insert_if_not_exists/2, dirty_fetch_all_peers_to_ask_for_peers/2, dirty_fetch_all_peers_to_ping/2, dirty_fetch_last_fetched_peer/2, update_peer/3]).
+-export([start_link/3, server_port/1, sudo_add_peers/2, add_peer_if_possible/2, delete_peers/2, fetch_peer/2, fetch_all/1, fetch_all_servers/2, peers_not_in_table/2, insert_if_not_exists/2, dirty_fetch_all_peers_to_ask_for_peers/2, dirty_fetch_all_peers_to_ping/2, dirty_fetch_last_fetched_peer/2, update_peer/3, dirty_fetch_peers_closest_to_id/3, dirty_fetch_peer/2]).
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %% ------------------------------------------------------------------
@@ -52,33 +61,20 @@ insert_if_not_exists(MyId, PeerId) ->
 fetch_all(MyId) ->
     gen_server:call(?MODULE_ID(MyId), fetch_all).
 
+dirty_fetch_peer(MyId, PeerId) ->
+    ets:lookup(?PEER_TABLE(MyId), PeerId).
+
 dirty_fetch_all_peers_to_ask_for_peers(MyId, MaxTimeSinceLastRequest) ->
-    Now = erlang:system_time(milli_seconds),
-    MatchSpec = ets:fun2ms(
-        fun(#peer{peer_pid=PeerPid, last_peerlist_request=LastRequest} = Peer) when (Now - LastRequest > MaxTimeSinceLastRequest) -> PeerPid end),
-    ets:select(?PEER_TABLE(MyId), MatchSpec).
+    fetch_all_peers_to_ask_for_peers_(?PEER_TABLE(MyId), MaxTimeSinceLastRequest).
 
 dirty_fetch_all_peers_to_ping(MyId, MaxTimeSinceLastSpoke) ->
-    Now = erlang:system_time(milli_seconds),
-    MatchSpec = ets:fun2ms(
-        fun(#peer{peer_pid=PeerPid, last_spoke=LastSpoke} = Peer) when (Now - LastSpoke > MaxTimeSinceLastSpoke) -> PeerPid end),
-    ets:select(?PEER_TABLE(MyId), MatchSpec).
+    fetch_all_peers_to_ping_(?PEER_TABEL(MyId), MaxTimeSinceLastSpoke).
 
 dirty_fetch_last_fetched_peer(MyId, PeerId) ->
-    [Peer] = ets:lookup(?PEER_TABLE(MyId), PeerId),
-    Peer#peer.last_fetched_peer.
+    fetch_last_fetched_peer_(?PEER_TABLE(MyId), PeerId).
 
-dirty_fetch_peer_closest_to_id(MyId, PeerId) ->
-    % Worst distance that should be acceptable (Should be dynamically defined at some point)
-    Neighbourhood = p2phun_utils:floor(?KEYSPACE_SIZE / 2),
-    MatchSpec = ets:fun2ms(
-        fun(#peer{id=Id, address=Address, server_port=Port} = _Peer) when (Id bxor PeerId < Neighbourhood) ->
-            #peer{id=Id, address=Address, server_port=Port} end),
-    ResultRaw = ets:select(?PEER_TABLE(MyId), MatchSpec, 100), %It should traverse the whole list at some point.
-    case ResultRaw of
-        '$end_of_table' -> [];
-        {Result, _} -> Result
-    end.
+dirty_fetch_peers_closest_to_id(MyId, PeerId, Neighbourhood) ->
+    dirty_fetch_peers_closest_to_id_(?PEER_TABLE(MyId), PeerId, Neighbourhood).
 
 fetch_all_servers(MyId, TimeStamp) ->
     gen_server:call(?MODULE_ID(MyId), {fetch_all_servers, TimeStamp}).
@@ -113,28 +109,28 @@ init([Id, RoutingTableSpeac, ServerPort]) ->
 handle_call(server_port, _From, State) ->
     {reply, State#state.server_port, State};
 handle_call({fetch_peer, PeerId}, _From, State) ->
-    {reply, fetch_peer_(PeerId, State), State};
+    {reply, fetch_peer_(PeerId, State#state.tablename), State};
 handle_call({insert_if_not_exists, PeerId}, _From, State) ->
-    {reply, insert_if_not_exists_(PeerId, State), State};
+    {reply, insert_if_not_exists_(PeerId, State#state.tablename), State};
 handle_call({add_peer_if_possible, Peer}, _From, State) ->
-    {reply, add_peer_if_possible_(Peer, State), State};
+    {reply, add_peer_if_possible_(Peer, State#state.tablename), State};
 handle_call(fetch_all, _From, State) ->
-    {reply, fetch_all_(State), State};
+    {reply, fetch_all_(State#state.tablename), State};
 handle_call({fetch_all_servers, TimeStamp}, _From, State) ->
-    {reply, fetch_all_servers_(TimeStamp, State), State};
+    {reply, fetch_all_servers_(TimeStamp, State#state.tablename), State};
 handle_call({peers_not_in_table, Peers}, _From, State) ->
-    {reply, peers_not_in_table_(Peers, State), State};
+    {reply, peers_not_in_table_(Peers, State#state.tablename), State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
 handle_cast({sudo_add_peers, Peers}, State) ->
-    sudo_add_peers_(Peers, State),
+    sudo_add_peers_(Peers, State#state.tablename),
     {noreply, State};
 handle_cast({delete_peers, Peers}, State) ->
-    delete_peers_(Peers, State),
+    delete_peers_(Peers, State#state.tablename),
     {noreply, State};
 handle_cast({update_peer, PeerId, Updates}, State) ->
-    update_peer_(PeerId, Updates, State),
+    update_peer_(PeerId, Updates, State#state.tablename),
     {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -151,39 +147,17 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
-update_peer_(PeerId, Updates, S) ->
-    UpdatesMap = maps:from_list(Updates),
-    Fields = record_info(fields, peer),
-    [Peer] = fetch_peer_(PeerId, S),
-    [peer|Values] = tuple_to_list(Peer),
-    UpdatedValues = lists:map(
-        fun(Field) -> updating_peer(Field, UpdatesMap) end,
-        lists:zip(Fields, Values)),
-    sudo_add_peers_([list_to_tuple([peer | UpdatedValues])], S).
-
-updating_peer({FieldName, FieldValue}, Update) ->
-    case maps:is_key(FieldName, Update) of
-        true -> maps:get(FieldName, Update);
-        false -> FieldValue
-    end.
-
-add_peer_if_possible_(Peer, S) ->
-    case peer_already_in_table(Peer, S) of
+add_peer_if_possible_(Peer, #state{tablename=Table} = S) ->
+    case peer_already_in_table(Peer, Table) of
         true ->
             already_in_table;
         false ->
             case room_for_peer(Peer, S) of
                 yes ->
-                    sudo_add_peers_([Peer], S),
+                    sudo_add_peers_([Peer], Table),
                     peer_added;
                 Failure -> Failure
             end
-    end.
-
-peer_already_in_table(Peer, S) ->
-    case fetch_peer_(Peer#peer.id, S) of
-        [] -> false;
-        _ -> true
     end.
 
 room_for_peer(#peer{id=Id}, #state{id=MyId, bigbin_size=BigBin_Size, smallbin_size=SmallBin_Size} = S) ->
@@ -196,40 +170,6 @@ room_for_peer(#peer{id=Id}, #state{id=MyId, bigbin_size=BigBin_Size, smallbin_si
         true ->
             bin_full
     end.
-
-sudo_add_peers_(Peers, S) ->
-    ets:insert(S#state.tablename, Peers).
-
-delete_peers_(Peers, S) ->
-    lists:foreach(fun(Peer) -> ets:delete(S#state.tablename, Peer) end, Peers).
-
-fetch_all_(S) ->
-    [Peer || [Peer] <- ets:match(S#state.tablename, '$1')].
-
-fetch_all_servers_(TimeStamp, S) ->
-    MatchSpec = ets:fun2ms(fun(#peer{server_port=Port, time_added=TimeAdded} = Peer) when (Port =/= none), (TimeAdded > TimeStamp) -> Peer end),
-    [Peer || Peer <- ets:select(S#state.tablename, MatchSpec)].
-
-fetch_peer_(PeerId, S) ->
-    ets:lookup(S#state.tablename, PeerId).
-
-insert_if_not_exists_(PeerId, S) ->
-    case fetch_peer_(PeerId, S) of
-        [] -> 
-            sudo_add_peers_([#peer{id=PeerId}], S),
-            peer_inserted;
-        _ ->
-            peer_exists
-    end.
-
-peers_not_in_table_(Peers, S) ->
-    lists:filter(
-        fun(#peer{id=Id} = _Peer) ->
-            case fetch_peer_(Id, S) of
-                [] -> true;
-                _ -> false
-            end
-        end, Peers).
 
 peers_in_bin({Start, End}, #state{id=MyId} = _S) ->
     ets:foldl(

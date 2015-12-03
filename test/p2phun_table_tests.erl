@@ -3,7 +3,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -include("peer.hrl").
--record(state, {tablename, id, space_size, bigbin, bigbin_size, smallbins, smallbin_size}).
+-record(state, {tablename, id, server_port, space_size, bigbin, bigbin_size, smallbins, smallbin_size}).
 
 create_interval_sequence_test() ->
     [1,4,7,10] = p2phun_peertable:create_interval_sequence(1, 10, 3),
@@ -16,10 +16,10 @@ create_intervals_test() ->
     [{20, 30}, {30, 40}, {40, 50}] = p2phun_peertable:create_intervals(20, 50, 3).
 
 mockstate(Peers2Insert) ->
-    Tablename = testtable,
-    ets:new(Tablename, [ordered_set, named_table, {keypos, 2}]),
+    MyId = 0,
+    ets:new(?PEER_TABLE(MyId), [ordered_set, named_table, {keypos, 2}]),
     SmallBins = p2phun_peertable:create_intervals(20, 50, 3), % Like last line in create_intervals_test/0
-    MockState = #state{id=0, bigbin={-1, 20}, smallbins=SmallBins, tablename=Tablename, bigbin_size=3, smallbin_size=2},
+    MockState = #state{id=MyId, bigbin={-1, 20}, smallbins=SmallBins, tablename=?PEER_TABLE(MyId), bigbin_size=3, smallbin_size=2},
     p2phun_peertable:sudo_add_peers_(Peers2Insert, MockState),
     MockState.
 
@@ -73,3 +73,13 @@ update_peer_test() ->
     NewServerPort = Peer#peer.server_port,
     NewTimeAdded = Peer#peer.time_added,
     ets:delete(MockState#state.tablename).
+
+dirty_fetch_peer_closest_to_id_test() ->
+    PeersInTable = [
+        #peer{id=2}, #peer{id=4}, #peer{id=8},
+        #peer{id=16}, #peer{id=32}, #peer{id=64}],
+    MockState = mockstate(PeersInTable),
+    ExpectedResult = sets:from_list([#peer{id=2}, #peer{id=4}, #peer{id=8}]),
+    Result = sets:from_list(p2phun_peertable:dirty_fetch_peer_closest_to_id(MockState#state.id, 1, 10)),
+    true = sets:is_subset(Result, ExpectedResult),
+    true = sets:is_subset(ExpectedResult, Result).
