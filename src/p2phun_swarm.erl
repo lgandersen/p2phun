@@ -5,28 +5,29 @@
 -behaviour(gen_server).
 
 %% API functions
--export([start_link/1]).
+-export([
+    start_link/1,
+    find_node/2,
+    add_peers_not_in_table/2,
+    next_peer/1]).
 
 %% gen_server callbacks
--export([init/1,
-         handle_call/3,
-         handle_cast/2,
-         handle_info/2,
-         terminate/2,
-         code_change/3]).
+-export([
+    init/1,
+    handle_call/3,
+    handle_cast/2,
+    handle_info/2,
+    terminate/2,
+    code_change/3]).
 
 
 %% Import general table functions
 -import(p2phun_peertable_operations, [
-    peers_not_in_table_/2, insert_if_not_exists_/2,
-    fetch_all_servers_/2, update_peer_/3,
-    peer_already_in_table_/2, fetch_peers_closest_to_id_/3,
-    fetch_last_fetched_peer_/2, fetch_all_peers_to_ping_/2,
-    fetch_all_peers_to_ask_for_peers_/2, fetch_peer_/2,
-    fetch_all_/1, sudo_add_peers_/2, delete_peers_/2]).
+    peers_not_in_table_/2, update_peer_/3, sudo_add_peers_/2,
+    fetch_peers_closest_to_id_and_not_visited/3.
+    ]).
 
-
--record(state, {my_id, cache, searchers, nsearchers, responses}).
+-record(state, {my_id, cache, id2find, searchers, nsearchers, responses, caller_pid}).
 
 %%%===================================================================
 %%% API functions
@@ -35,10 +36,17 @@
 start_link(MyId) ->
     gen_server:start_link({local, ?MODULE_ID(MyId)}, ?MODULE, [MyId], []).
 
-find_node(MyId, NodeId) ->
-    gen_server:call(?MODULE_ID(MyId), {find_node, NodeId}) 
+find_node(MyId, Id2Find) ->
+    gen_server:cast(?MODULE_ID(MyId), {find_node, Id2Find, self()}). 
+    receive
+        {find_node_responses, Responses} -> Responses
+    end.
 
-add_peers(ParentPid, Peers) ->
+add_peers_not_in_table(MyId, Peers) ->
+    gen_server:cast(?MODULE_ID(MyId), {add_peers, Peers}).
+
+next_peer(MyId) ->
+    gen_server:cast(?MODULE_ID(MyId), next_peer).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -52,24 +60,43 @@ init([MyId]) ->
         lists:seq(1, NSearchers)),
     {ok, #state{my_id=MyId, cache=Cache, searchers=Searchers, nsearchers=NSearchers, responses=[]}}.
 
-handle_call({find_node, NodeId}, _From, #state{my_id=MyId, searchers=Searchers} = State) ->
-    ClosestTo = dirty_fetch_peers_closest_to_id(
+handle_cast({find_node, Id2Find, CallerPid}, _From, #state{my_id=MyId, searchers=Searchers} = State) ->
+    ClosestPeers = dirty_fetch_peers_closest_to_id(
         ?PEER_TABLE(MyId), PeerId, p2phun_utils:floor(?KEYSPACE_SIZE / 2)),
-    case lists:keyfind(NodeId, 2, ClosestTo) of
+    case lists:keyfind(Id2Find, 2, ClosestPeers) of
         Peer -> Peer;
-        false -> find_node(NodeId, ClosestTo, Searchers, State)
-    end.
-            
-    %check if the Node is in our own list above, otherwise ask our neighbours, check if the node is there and if not, parse those down the searchers
-    % NB! Should we try and connect to verify the validity of the node-information we find? IF it is possible.
+        false ->
+            sudo_add_peers_(ClosestPeers, Cache),
+            lists:foreach(
+                fun(SearcherPid) -> p2phun_searcher:find({node, Id2Find, self()}, SearcherPid) end,
+                Searchers),
+            awaiting_result()
+    end,
+    {noreply, State#state{caller_pid=CallerPid}}.
 
+handle_call(next_peer, _From, #state{id2find=Id2Find, cache=Cache} = State) ->
+    case fetch_peers_closest_to_id_and_not_visited(
+        Cache, Id2Find, floor(?KEYSPACE_SIZE / 2), 1) of
+        [Peer] ->
+            update_peer_(Peer#peer.id, [{process_status, done}], Cache),
+            {reply, Peer, State};
+        [] -> 
+            {reply, no_peer_found, State}
+    end;
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
 
+handle_cast({add_peers, Peers}, #state{my_id=MyId, cache=Cache} = State) ->
+    NewPeers = peers_not_in_table_(Peers, Cache),
+    sudo_add_peers_(NewPeers, Cache),
+    {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+handle_info({result, Response}, State) ->
+    NewState = handle_responses(Response, State),
+    {noreply, NewState};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -82,45 +109,14 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-find_node(NodeId, [Peer|RestPeers], [Searcher|RestSearchers], State) ->
-    Searcher ! {find_node, Peer, NodeId, self()},
-    find_node(NodeId, RestPeers, RestSearchers, State);
-find_node(NodeId, [], Searchers, State) -> find_node(NodeId, [], [], State);
-find_node(NodeId, Peers, [], State) -> find_node(NodeId, [], [], State);
-find_node(NodeId, [], [], State) ->
-    receive 
-        % here we should have several types of responses
-        %{node_found, Peer} -> Peer; % Perhaps we should try an connect to it?
+
+handle_responses(NewResponse, #state{responses=Responses, nsearchers=NSearchers, caller_pid=CallerPid} = State) ->
+    ResponsesNew = [NewResponse, Responses];
+    case length(ResponsesNew) of
+        NSearchers ->
+            % WHAT TO DO WITH CACHE?
+            CallerPid ! {find_node_responses, ResponsesNew},
+            State#state{responses=[], caller_pid=undefined, id2find=undefined};
+        _ ->
+            State#state{responses=ResponsesNew}
     end.
-
-%% ALL THIS SHOULD BE WRAPPED IN GEN_SERVER
-searcher(State) ->
-    receive {find_node, Peer2Ask, NodeId, ParentPid} -> 
-        runner_find_node(Peer2Ask, NodeId, ParentPid, State)  
-    end.
-
-runner_find_node(Peer2Ask, NodeId, ParentPid, #state{my_id=MyId, cache=Cache} = State) ->
-    case p2phun_peer:find_peer(Peer2Ask#peer.pid, NodeId, self()) of
-        {peers_closer, Peers} ->
-            sudo_add_peers_(Peers, Cache),
-            % It should be closer to what we've got already
-            PeerPid = connect_next(fetch_peers_closest_to_id_(Cache, NodeId, Peer2Ask#peer.id));
-        {found_node, NodeId} ->
-            % check if 1) if it is a server and if so try to connect to its port, if it fails report that back
-            %          2) otherwise report that it is not a server and return the node we are connected to atm which gave us the info
-            ParentPid ! {node_found, NodeId} % this should be changed, see above
-    end,
-
-connect_next([Peer|RestOfPeers], #state{my_id=MyId} = State) ->
-    #peer{address=Address, server_port=Port} = Peer,                
-    case connect_sync(MyId, Address, Port) of
-        {connected, PeerPid} -> PeerPid;
-        {error, Reason} ->
-            connect_next(RestOfPeers, State)
-    end.
-connect_next([], State) -> no_more_peers_lef_what_to_do. % Perhaps send a 'i'm done and found nothing'
-
-% Content of SearchResult:
-%        false -> {peers_closer, Peers};
-%        Node -> {found_node, Node}
-

@@ -3,7 +3,7 @@
 -include("peer.hrl").
 
 %% Api function exports
--export([start_link/4, start_link/3, send_peerlist/1, request_peerlist/1, ping/1, pong/1]).
+-export([start_link/4, start_link/3, close_connection/1, send_peerlist/1, request_peerlist/1, ping/1, pong/1]).
 
 %% gen_fsm exports
 -export([init/1, handle_event/3, handle_info/3, handle_sync_event/4, terminate/3, code_change/4]).
@@ -11,11 +11,16 @@
 %% State function exports
 -export([awaiting_hello/2, connected/2, connected/3]).
 
-%% Import general table functions
--import(p2phun_peertable, []). %PLZ2fix
-
 %% Import routing table specific functions
--import(p2phun_peertable_operations, []). %PLZ2FIX
+-import(p2phun_peertable_operations, [
+    delete_peers/2,
+    fetch_last_fetched_peer_/2,
+    fetch_all_servers_/2,
+    fetch_peers_closest_to_id_/4,
+    update_peer_/3
+    ]).
+
+]).
 
 %% Import utils
 -import(p2phun_utils, [lager_info/3, lager_info/2]).
@@ -32,6 +37,9 @@ start_link(Ref, Socket, Transport, Opts) ->
 
 start_link(Address, Port, Opts) ->
     gen_fsm:start_link(p2phun_peer, {we_connect, Address, Port, Opts}, []).
+
+close_connection(PeerPid) ->
+    gen_fsm:stop(PeerPid), 
 
 request_peerlist(PeerPid) ->
     gen_fsm:send_event(PeerPid, {request_peerlist, self()}),
@@ -66,9 +74,10 @@ init({we_received_connection, Ref, Socket, Transport, [MyId] = _Opts}) ->
     ok = ranch:accept_ack(Ref),
     gen_fsm:enter_loop(?MODULE, [], awaiting_hello, State);
 init({we_connect, Address, Port, #{my_id := MyId, callers := Callers} = _Opts}) ->
-    case gen_tcp:connect(Address, Port, [binary, {packet, 4}, {active, once}], 10000) of
+    Transport = gen_tcp,
+    case Transport:connect(Address, Port, [binary, {packet, 4}, {active, once}], 10000) of
         {ok, Sock} ->
-            State = initialize(MyId, Sock, gen_tcp, true, Callers),
+            State = initialize(MyId, Sock, Transport, true, Callers),
             send_hello(State),
             {ok, awaiting_hello, State};
         {error, Reason} ->
@@ -126,7 +135,11 @@ handle_info({tcp_closed, _Socket}, _StateName, State) ->
 handle_info(_Info, _StName, StData) ->
     {stop, unrecognized_message_received, StData}.
 
-terminate(_Reason, _StName, _StData) -> ok.
+terminate(normal, StateName, #state{my_id=MyId, peer_id=PeerId, transport=Transport, sock=Sock} = State) -> 
+    Transport:close(Sock)
+    delete_peers(MyId, [PeerId])
+    lager_info(MyId, "Shutting me down!"),
+%    supervisor:terminate_child(p2phun_utils:id2proc_name(p2phun_peer_pool, MyId), self())..
 
 code_change(_OldVsn, StName, StData, _Extra) -> {ok, StName, StData}.
 
@@ -137,12 +150,12 @@ awaiting_hello(
     {got_hello, #hello{id=PeerId, server_port=ListeningPort}},
     #state{my_id=MyId, address=Address, port=Port} = State) ->
     Peer = #peer{id=PeerId, address=Address, connection_port=Port, server_port=ListeningPort, pid=self(), time_added=erlang:system_time()},
-    case p2phun_peertable:add_peer_if_possible(MyId, Peer) of
+    case p2phun_routingtable:add_peer_if_possible(MyId, Peer) of
         peer_added ->
             NewCallers = notify_and_remove_callers(request_hello, {ok, got_hello}, State);
         FailureReason ->
             NewCallers = notify_and_remove_callers(request_hello, {error, FailureReason}, State),
-            close_connection_(MyId, PeerId)
+            gen_fsm:stop(self())
     end,
     case State#state.we_connected of
       false -> send_hello(State);
@@ -161,7 +174,7 @@ connected(got_pong, State) ->
     NewCallers = notify_and_remove_callers(request_pong, got_pong, State),
     {next_state, connected, State#state{callers=NewCallers}};
 connected({request_peerlist, Caller}, #state{my_id=MyId, peer_id=PeerId} = State) ->
-    TimeStamp = p2phun_peertable:dirty_fetch_last_fetched_peer(MyId, PeerId),
+    TimeStamp = fetch_last_fetched_peer_(MyId, PeerId),
     send({request_peerlist, {peer_age_above, TimeStamp}}, State),
     {next_state, connected, State#state{callers=add_caller({request_peerlist, Caller}, State)}};
 connected({got_peerlist, Peers}, State) ->
@@ -185,18 +198,18 @@ connected(_SomeEvent, _From, State) ->
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
 send_hello(#state{my_id=MyId} = State) ->
-    ListeningPort = p2phun_peertable:server_port(MyId),
+    ListeningPort = p2phun_routingtable:server_port(MyId),
     HelloMsg = #hello{id=MyId, server_port=ListeningPort},
     send({hello, HelloMsg}, State).
 
 send_peerlist_(State, TimeStamp) ->
-    Peers = [Peer#peer{connection_port=none, pid=none} || Peer <- p2phun_peertable:fetch_all_servers(State#state.my_id, TimeStamp)],
+    Peers = [Peer#peer{connection_port=none, pid=none} || Peer <- fetch_all_servers_(State#state.my_id, TimeStamp)],
     send({peer_list, Peers}, State).
 
 search_node_and_send_result(NodeId, #state{my_id=MyId} = State) ->
     % Worst distance that should be acceptable (Should be dynamically defined at some point)
-    Neighbourhood = p2phun_utils:floor(?KEYSPACE_SIZE / 2),
-    Peers = p2phun_peertable:dirty_fetch_peers_closest_to_id(MyId, NodeId, Neighbourhood),
+    MaxDistance = p2phun_utils:floor(?KEYSPACE_SIZE / 2),
+    Peers = fetch_peers_closest_to_id_(MyId, NodeId, MaxDistance, 10),
     SearchResult = case lists:keyfind(NodeId, 2, Peers) of
         false -> {peers_closer, Peers};
         Node -> {found_node, Node}
@@ -210,11 +223,11 @@ add_caller(Call, #state{callers=Callers} = _S) ->
     [Call|Callers].
 
 update_timestamps([], #state{my_id=MyId, peer_id=PeerId} = _S) ->
-    p2phun_peertable:update_peer(MyId, PeerId, [
+    update_peer_(MyId, PeerId, [
         {last_peerlist_request, erlang:system_time(milli_seconds)},
         {last_spoke, erlang:system_time(milli_seconds)}]);
 update_timestamps(Peers, #state{my_id=MyId, peer_id=PeerId} = _S) ->
-    p2phun_peertable:update_peer(MyId, PeerId, [
+    update_peer_(MyId, PeerId, [
         {last_peerlist_request, erlang:system_time(milli_seconds)},
         {last_spoke, erlang:system_time(milli_seconds)},
         {last_fetched_peer, lists:max([Peer#peer.time_added || Peer <- Peers])}
@@ -228,11 +241,3 @@ notify_and_remove_callers(RequestType, Event, #state{callers=Callers} = _S) ->
                 false -> true
             end
         end, Callers).
-
-close_connection_(MyId, PeerId) ->
-    case PeerId of
-        undefined -> ok;
-        _ -> p2phun_peertable:delete_peers(MyId, [PeerId])
-    end,
-    lager_info(MyId, "Shutting me down!"),
-    supervisor:terminate_child(p2phun_utils:id2proc_name(p2phun_peer_pool, MyId), self()).

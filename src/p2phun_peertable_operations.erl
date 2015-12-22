@@ -1,13 +1,21 @@
 -module(p2phun_peertable_operations).
 -include("peer.hrl").
 
-%-import(p2phun_peertable_operations, [
-%    peers_not_in_table_/2, insert_if_not_exists_/2,
-%    fetch_all_servers_/2, update_peer_/3,
-%    peer_already_in_table_/2, fetch_peers_closest_to_id_/3,
-%    fetch_last_fetched_peer_/2, fetch_all_peers_to_ping_/2,
-%    fetch_all_peers_to_ask_for_peers_/2, fetch_peer_/2,
-%    fetch_all_/1, sudo_add_peers_/2, delete_peers_/2]).
+-export(p2phun_peertable_operations, [
+    delete_peers_/2],
+    insert_if_not_exists_/2,
+    fetch_all_/1,
+    fetch_all_peers_to_ping_/2,
+    fetch_all_peers_to_ask_for_peers_/2,
+    fetch_all_servers_/2,
+    fetch_peer_/2,
+    fetch_last_fetched_peer_/2,
+    fetch_peers_closest_to_id_/4,
+    fetch_peers_closest_to_id_and_not_visited/4,
+    peer_already_in_table_/2,
+    peers_not_in_table_/2,
+    sudo_add_peers_/2,
+    update_peer_/3]).
 
 fetch_all_(Table) -> [Peer || [Peer] <- ets:match(Table, '$1')].
 
@@ -34,15 +42,25 @@ fetch_last_fetched_peer_(Table, PeerId) ->
     [Peer] = ets:lookup(Table, PeerId),
     Peer#peer.last_fetched_peer.
 
-fetch_peers_closest_to_id_(Table, Id, Neighbourhood) ->
+fetch_peers_closest_to_id_and_not_visited(Table, Id, MaxDist, MaxVals)
     MatchSpec = ets:fun2ms(
-        fun(#peer{id=PeerId, address=Address, server_port=Port} = _Peer) when (PeerId bxor Id < Neighbourhood) ->
+        fun(#peer{id=PeerId, address=Address, server_port=Port, process_status=Status} = _Peer) when (PeerId bxor Id < MaxDist), Status =:= done ->
             #peer{id=PeerId, address=Address, server_port=Port} end),
-    fetch_peers_closest_to_id_1(ets:select(Table, MatchSpec, 200), []).
-fetch_peers_closest_to_id_1('$end_of_table', ResultsSoFar) -> ResultsSoFar;
-fetch_peers_closest_to_id_1({NextResult, Continuation}, ResultsSoFar) ->
-    % We should do some removing of worst results here
-    fetch_peers_closest_to_id_1(ets:select(Continuation), NextResult ++ ResultsSoFar).
+    fetch_peers_closest_to_id_1(Table, Id, MaxVals, MatchSpec).
+
+fetch_peers_closest_to_id_(Table, Id, MaxDist, MaxVals) ->
+    MatchSpec = ets:fun2ms(
+        fun(#peer{id=PeerId, address=Address, server_port=Port} = _Peer) when (PeerId bxor Id < MaxDist) ->
+            #peer{id=PeerId, address=Address, server_port=Port} end),
+    fetch_peers_closest_to_id_1(Table, Id, MaxVals, MatchSpec).
+
+fetch_peers_closest_to_id_1(Table, Id, MaxVals, MatchSpec)
+    Sorter = fun(Peer1, Peer2) -> Peer1#peer.id bxor Id < Peer2#peer.id bxor Id end,
+    FormatList = fun(Peers) -> lists:sublist(lists:sort(Sorter, Peers), MaxVals) end,
+    fetch_peers_closest_to_id_2(ets:select(Table, MatchSpec, ?MAX_TABLE_FETCH), [], FormatList).
+fetch_peers_closest_to_id_2('$end_of_table', Results, FormatList) -> FormatList(Results);
+fetch_peers_closest_to_id_2({NextResult, Continuation}, ResultsSoFar, FormatList) ->
+    fetch_peers_closest_to_id_2(ets:select(Continuation), FormatList(NextResult ++ ResultsSoFar)).
 
 peer_already_in_table_(Peer, Table) ->
     case fetch_peer_(Peer#peer.id, Table) of

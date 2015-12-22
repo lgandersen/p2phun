@@ -43,9 +43,13 @@ connect(MyId, Address, Port) ->
     lager_info(MyId, "Connecting to peer on ~p:~p.", [Address, Port]),
     supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => []}]).
 
+-spec connect_and_notify_when_connected(MyId :: id(), Address :: nonempty_string(), Port :: inet:port_number()) -> {ok, pid()} | {error, term()}.
+connect_and_notify_when_connected(MyId, Address, Port) ->
+    {ok, ChildPid} = supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => [{request_hello, self()}]}]).
+
 -spec connect_sync(MyId :: id(), Address :: nonempty_string(), Port :: inet:port_number()) -> {connected, pid()} | {error, term()}.
 connect_sync(MyId, Address, Port) ->
-    {ok, ChildPid} = supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => [{request_hello, self()}]}]),
+    connect_and_notify_when_connected(MyId, Address, Port),
     receive
         {ok, got_hello} -> {connected, ChildPid};
         {error, Reason} -> {error, Reason}

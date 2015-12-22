@@ -1,4 +1,4 @@
--module(p2phun_peertable).
+-module(p2phun_routingtable).
 -behaviour(gen_server).
 
 -import(p2phun_utils, [lager_info/3, lager_info/3]).
