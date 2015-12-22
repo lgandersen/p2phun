@@ -7,6 +7,7 @@
 
 -export([b64/1, bin/1, int/2]).
 
+-spec id2proc_name(BaseName :: atom(), Id :: integer() | binary()) -> atom().
 id2proc_name(BaseName, Id) when is_atom(BaseName), is_integer(Id) -> 
     id2proc_name(BaseName, integer_to_binary(Id));
 id2proc_name(BaseName, Id) when is_atom(BaseName), is_binary(Id) -> 

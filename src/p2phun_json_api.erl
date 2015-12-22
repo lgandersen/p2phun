@@ -64,6 +64,7 @@ send(Msg, #state{transport=Transport, sock=Sock}) ->
     lager:info("V2222222et?:~p", [Resp]),
     Transport:send(Sock, Resp).
 
+address_to_binary(undefined) ->
+    address_to_binary(io_lib:format("~p",[undefined]));
 address_to_binary(Address) ->
-    [X, Y, Z, W] = [integer_to_binary(N) || N <- tuple_to_list(Address)],
-    <<X/binary, Y/binary, Z/binary, W/binary>>.
+    binary:list_to_bin(Address).
