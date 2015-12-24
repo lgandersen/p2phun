@@ -35,19 +35,24 @@
 %%%===================================================================
 %%% API functions
 %%%===================================================================
+-type response() :: no_node_found | {node_found, {NodeId :: id(), PeerPid :: pid()}}.
 
+-spec start_link(id()) -> {ok, pid()} | ignore | {error, error()}.
 start_link(MyId) ->
     gen_server:start_link({local, ?MODULE_ID(MyId)}, ?MODULE, [MyId], []).
 
+-spec find_node(MyId :: id(), Id2Find :: id()) -> [response()].
 find_node(MyId, Id2Find) ->
     gen_server:cast(?MODULE_ID(MyId), {find_node, Id2Find, self()}),
     receive
         {find_node_responses, Responses} -> Responses
     end.
 
+-spec add_peers_not_in_table(MyId :: id(), Peers :: [#peer{}]) -> ok.
 add_peers_not_in_table(MyId, Peers) ->
     gen_server:cast(?MODULE_ID(MyId), {add_peers, Peers}).
 
+-spec next_peer(id()) -> no_peer_found | #peer{}.
 next_peer(MyId) ->
     gen_server:call(?MODULE_ID(MyId), next_peer).
 
@@ -111,6 +116,7 @@ code_change(_OldVsn, State, _Extra) ->
 %%% Internal functions
 %%%===================================================================
 
+-spec handle_responses(response(), #state{}) -> #state{}.
 handle_responses(NewResponse, #state{responses=Responses, nsearchers=NSearchers, caller_pid=CallerPid} = State) ->
     ResponsesNew = [NewResponse, Responses],
     case length(ResponsesNew) of

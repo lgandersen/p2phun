@@ -29,23 +29,23 @@ start_link(MyId) ->
 
 %% @private 
 %% Ranch callback
--spec start_link(ListenerPid :: pid(), Socket :: inet:socket(), Transport :: term(), Opts :: [p2phun_types:id()]) -> {ok, pid()}.
+-spec start_link(ListenerPid :: pid(), Socket :: inet:socket(), Transport :: term(), Opts :: [id()]) -> {ok, pid()}.
 start_link(ListenerId, Socket, Transport, [MyId] = Opts) ->
     {ok, [{Address, Port}]} = inet:peernames(Socket),
     lager_info(MyId, "Incoming peer on ~p:~p.", [Address, Port]),
     supervisor:start_child(?MODULE_ID(MyId), [ListenerId, Socket, Transport, Opts]).
 
 %% Connect to a new peer
--spec connect(MyId :: p2phun_types:id(), Address :: nonempty_string(), Port :: inet:port_number()) -> {ok, pid()} | {error, term()}.
+-spec connect(MyId :: id(), Address :: nonempty_string(), Port :: inet:port_number()) -> {ok, pid()} | {error, term()}.
 connect(MyId, Address, Port) ->
     lager_info(MyId, "Connecting to peer on ~p:~p.", [Address, Port]),
     supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => []}]).
 
--spec connect_and_notify_when_connected(MyId :: p2phun_types:id(), Address :: nonempty_string(), Port :: inet:port_number()) -> {ok, pid()} | {error, term()}.
+-spec connect_and_notify_when_connected(MyId :: id(), Address :: nonempty_string(), Port :: inet:port_number()) -> {ok, pid()} | {error, term()}.
 connect_and_notify_when_connected(MyId, Address, Port) ->
     supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => [{request_hello, self()}]}]).
 
--spec connect_sync(MyId :: p2phun_types:id(), Address :: nonempty_string(), Port :: inet:port_number()) -> {connected, pid()} | {error, term()}.
+-spec connect_sync(MyId :: id(), Address :: nonempty_string(), Port :: inet:port_number()) -> {connected, pid()} | {error, term()}.
 connect_sync(MyId, Address, Port) ->
     {ok, ChildPid} = connect_and_notify_when_connected(MyId, Address, Port),
     receive
