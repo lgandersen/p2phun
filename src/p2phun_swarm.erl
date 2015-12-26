@@ -82,15 +82,15 @@ handle_call(_Request, _From, State) ->
     {reply, Reply, State}.
 
 handle_cast({add_peers, Peers}, #state{cache=Cache} = State) ->
-    NewPeers = peers_not_in_table_(Peers, Cache),
-    sudo_add_peers_(NewPeers, Cache),
+    NewPeers = peers_not_in_table_(Cache, Peers),
+    sudo_add_peers_(Cache, NewPeers),
     {noreply, State};
 handle_cast({find_node, Id2Find, CallerPid}, #state{my_id=MyId, id2find=Id2Find, searchers=Searchers, cache=Cache} = State) ->
     ClosestPeers = fetch_peers_closest_to_id_(
         ?ROUTINGTABLE(MyId), Id2Find, p2phun_utils:floor(?KEYSPACE_SIZE / 2), 15),
     case lists:keyfind(Id2Find, 2, ClosestPeers) of
         false ->
-            sudo_add_peers_(ClosestPeers, Cache),
+            sudo_add_peers_(Cache, ClosestPeers),
             lists:foreach(
                 fun(SearcherPid) -> p2phun_searcher:find({node, Id2Find, self()}, SearcherPid) end,
                 Searchers);

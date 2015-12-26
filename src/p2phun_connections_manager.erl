@@ -3,6 +3,13 @@
 -include("peer.hrl").
 
 -import(p2phun_utils, [lager_info/3, lager_info/2]).
+-import(p2phun_peertable_operations, [
+    fetch_all_peers_to_ping_/2,
+    fetch_all_peers_to_ask_for_peers_/2,
+    peers_not_in_table_/2
+    ]).
+
+
 %% API
 -export([start_link/1]).
 
@@ -16,6 +23,7 @@
 %%% API
 %%%===================================================================
 
+-spec start_link(id()) -> {ok, pid()} | ignore | {error, error()}.
 start_link(Id) ->
     gen_server:start_link({local, ?MODULE_ID(Id)}, ?MODULE, [Id], []).
 
@@ -31,8 +39,8 @@ handle_call(_Request, _From, State) ->
     {reply, error, State}.
 
 handle_cast(plz_tend_peers, #state{my_id=MyId} = State) ->
-    handle_peer_requests(MyId),
-    handle_peer_pinging(MyId),
+    manage_peerlist_requests(MyId),
+    manage_peer_pinging(MyId),
     {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
@@ -48,13 +56,15 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+-spec reminder(pid()) -> no_return().
 reminder(Pid) ->
     timer:sleep(2000),
     gen_server:cast(Pid, plz_tend_peers),
     reminder(Pid).
 
-handle_peer_pinging(MyId) ->
-    PeerPids = p2phun_peertable:dirty_fetch_all_peers_to_ping(MyId, 2000),
+-spec manage_peer_pinging(MyId::id()) -> ok.
+manage_peer_pinging(MyId) ->
+    PeerPids = fetch_all_peers_to_ping_(?ROUTINGTABLE(MyId), 2000),
     lists:foreach(fun(PeerPid) ->
         case p2phun_peer:ping(PeerPid) of
             ping_timeout ->
@@ -63,15 +73,17 @@ handle_peer_pinging(MyId) ->
         end
     end, PeerPids).
 
-handle_peer_requests(MyId) ->
-    PeerPids = p2phun_peertable:dirty_fetch_all_peers_to_ask_for_peers(MyId, 2000),
+-spec manage_peerlist_requests(MyId::id()) -> ok.
+manage_peerlist_requests(MyId) ->
+    PeerPids = fetch_all_peers_to_ask_for_peers_(?ROUTINGTABLE(MyId), 2000),
     lists:foreach(fun(PeerPid) -> request_peers_and_connect(MyId, PeerPid) end, PeerPids).
 
+-spec request_peers_and_connect(MyId::id(), PeerPid::pid()) -> ok.
 request_peers_and_connect(MyId, PeerPid) ->
     Peers = p2phun_peer:request_peerlist(PeerPid),
     Peers2Add = lists:filter(
         fun(#peer{id=Id} = _P) -> Id =/= MyId end,
-        p2phun_peertable:peers_not_in_table(MyId, Peers)),
+        peers_not_in_table_(?ROUTINGTABLE(MyId), Peers)),
     lists:foreach(
         fun(#peer{address=Address, server_port=Port}=_Peer) -> p2phun_peer_pool:connect(MyId, Address, Port) end,
         Peers2Add).

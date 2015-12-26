@@ -107,7 +107,7 @@ add_peer_if_possible_(Peer, #state{tablename=Table} = S) ->
         false ->
             case room_for_peer(Peer, S) of
                 true ->
-                    sudo_add_peers_([Peer], Table),
+                    sudo_add_peers_(Table, [Peer]),
                     peer_added;
                 false -> table_full
             end

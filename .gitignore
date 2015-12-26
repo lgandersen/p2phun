@@ -11,5 +11,6 @@ console.log
 *.vim
 p2phun_test.config
 frege
+goedel
 nodes.pickle
 start.sh

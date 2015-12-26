@@ -24,8 +24,8 @@ fetch_all_(Table) -> [Peer || [Peer] <- ets:match(Table, '$1')].
 -spec fetch_peer_(PeerId :: id(), Table :: table()) -> [#peer{}].
 fetch_peer_(PeerId, Table) -> ets:lookup(Table, PeerId).
 
--spec sudo_add_peers_(Peers :: [#peer{}], Table :: table()) -> true.
-sudo_add_peers_(Peers, Table) -> ets:insert(Table, Peers).
+-spec sudo_add_peers_(Table :: table(), Peers :: [#peer{}]) -> true.
+sudo_add_peers_(Table, Peers) -> ets:insert(Table, Peers).
 
 -spec delete_peers_(Peers :: [id()], Table :: table()) -> ok.
 delete_peers_(Peers, Table) ->
@@ -95,7 +95,7 @@ update_peer_(PeerId, Updates, Table) ->
     UpdatedValues = lists:map(
         fun(Field) -> updating_peer__(Field, UpdatesMap) end,
         lists:zip(Fields, Values)),
-    sudo_add_peers_([list_to_tuple([peer | UpdatedValues])], Table).
+    sudo_add_peers_(Table, [list_to_tuple([peer | UpdatedValues])]).
 
 -spec updating_peer__(NameAndValue :: {atom(), term()}, Update :: #{}) -> any().
 updating_peer__({FieldName, FieldValue}, Update) ->
@@ -113,14 +113,14 @@ fetch_all_servers_(TimeStamp, Table) ->
 insert_if_not_exists_(PeerId, Table) ->
     case fetch_peer_(PeerId, Table) of
         [] -> 
-            sudo_add_peers_([#peer{id=PeerId}], Table),
+            sudo_add_peers_(Table, [#peer{id=PeerId}]),
             peer_inserted;
         _ ->
             peer_exists
     end.
 
--spec peers_not_in_table_([#peer{}], table()) -> [true | false].
-peers_not_in_table_(Peers, Table) ->
+-spec peers_not_in_table_(table(), [#peer{}]) -> [true | false].
+peers_not_in_table_(Table, Peers) ->
     lists:filter(
         fun(#peer{id=Id} = _Peer) ->
             case fetch_peer_(Id, Table) of
