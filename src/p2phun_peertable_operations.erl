@@ -21,10 +21,11 @@
 -spec fetch_all_(Table :: table()) -> [#peer{}].
 fetch_all_(Table) -> [Peer || [Peer] <- ets:match(Table, '$1')].
 
--spec fetch_peer_(PeerId :: id(), Table :: table()) -> [#peer{}].
-fetch_peer_(PeerId, Table) -> ets:lookup(Table, PeerId).
+-spec fetch_peer_(Table :: table(), PeerId :: id()) -> [#peer{}].
+fetch_peer_(Table, PeerId) -> ets:lookup(Table, PeerId).
 
 -spec sudo_add_peers_(Table :: table(), Peers :: [#peer{}]) -> true.
+sudo_add_peers_(_Table, []) -> true;
 sudo_add_peers_(Table, Peers) -> ets:insert(Table, Peers).
 
 -spec delete_peers_(Peers :: [id()], Table :: table()) -> ok.
@@ -81,16 +82,16 @@ fetch_peers_closest_to_id_2({NextResult, Continuation}, ResultsSoFar, FormatList
 
 -spec peer_already_in_table_(Peer :: #peer{}, Table :: table()) -> true | false.
 peer_already_in_table_(Peer, Table) ->
-    case fetch_peer_(Peer#peer.id, Table) of
+    case fetch_peer_(Table, Peer#peer.id) of
         [] -> false;
         _ -> true
     end.
 
--spec update_peer_(PeerId :: id(), Updates :: [{atom(), term()}], Table :: table()) -> true.
-update_peer_(PeerId, Updates, Table) ->
+-spec update_peer_(Table :: table(), PeerId :: id(), Updates :: [{atom(), term()}]) -> true.
+update_peer_(Table, PeerId, Updates) ->
     UpdatesMap = maps:from_list(Updates),
     Fields = record_info(fields, peer),
-    [Peer] = fetch_peer_(PeerId, Table),
+    [Peer] = fetch_peer_(Table, PeerId),
     [peer|Values] = tuple_to_list(Peer),
     UpdatedValues = lists:map(
         fun(Field) -> updating_peer__(Field, UpdatesMap) end,
@@ -111,7 +112,7 @@ fetch_all_servers_(TimeStamp, Table) ->
 
 -spec insert_if_not_exists_(id(), table()) -> peer_inserted | peer_exists.
 insert_if_not_exists_(PeerId, Table) ->
-    case fetch_peer_(PeerId, Table) of
+    case fetch_peer_(Table, PeerId) of
         [] -> 
             sudo_add_peers_(Table, [#peer{id=PeerId}]),
             peer_inserted;
@@ -123,7 +124,7 @@ insert_if_not_exists_(PeerId, Table) ->
 peers_not_in_table_(Table, Peers) ->
     lists:filter(
         fun(#peer{id=Id} = _Peer) ->
-            case fetch_peer_(Id, Table) of
+            case fetch_peer_(Table, Id) of
                 [] -> true;
                 _ -> false
             end

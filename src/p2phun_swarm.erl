@@ -72,7 +72,7 @@ handle_call(next_peer, _From, #state{id2find=Id2Find, cache=Cache} = State) ->
     case fetch_peers_closest_to_id_and_not_processed(
         Cache, Id2Find, p2phun_utils:floor(?KEYSPACE_SIZE / 2), 1) of
         [Peer] ->
-            update_peer_(Peer#peer.id, [{processed, true}], Cache),
+            update_peer_(Cache, Peer#peer.id, [{processed, true}]),
             {reply, Peer, State};
         [] -> 
             {reply, no_peer_found, State}

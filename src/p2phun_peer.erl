@@ -235,16 +235,16 @@ send(Msg, #state{transport=Transport, sock=Sock}) ->
 
 -spec update_timestamps(Peers :: [], #state{}) -> true.
 update_timestamps([], #state{my_id=MyId, peer_id=PeerId}) ->
-    update_peer_(PeerId, [
+    update_peer_(?ROUTINGTABLE(MyId), PeerId, [
         {last_peerlist_request, erlang:system_time(milli_seconds)},
         {last_spoke, erlang:system_time(milli_seconds)}
-        ], ?ROUTINGTABLE(MyId));
+        ]);
 update_timestamps(Peers, #state{my_id=MyId, peer_id=PeerId}) ->
-    update_peer_(PeerId, [
+    update_peer_(?ROUTINGTABLE(MyId), PeerId, [
         {last_peerlist_request, erlang:system_time(milli_seconds)},
         {last_spoke, erlang:system_time(milli_seconds)},
         {last_fetched_peer, lists:max([Peer#peer.time_added || Peer <- Peers])}
-        ], ?ROUTINGTABLE(MyId)).
+        ]).
 
 -spec notify_and_remove_callers(ResponseType :: msg_type(), Result :: term(), #state{}) -> [{msg_type(), pid()}].
 notify_and_remove_callers(ResponseType, Result, #state{callers=Callers}) ->
