@@ -8,7 +8,8 @@
 
 -import(p2phun_peertable_operations, [
     peer_already_in_table_/2,
-    sudo_add_peers_/2
+    sudo_add_peers_/2,
+    update_peer_/3
     ]).
 
 
@@ -18,7 +19,7 @@
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
--export([start_link/3, server_port/1, add_peer_if_possible/2]).
+-export([start_link/3, server_port/1, update_timestamps/3, add_peer_if_possible/2]).
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %%  ------------------------------------------------------------------
@@ -36,7 +37,7 @@
 
 -type add_peer_result() :: peer_added | already_in_table | table_full.
 
--record(state, {tablename, id, server_port, space_size, bigbin, bigbin_size, smallbins, smallbin_size}).
+-record(state, {table, id, server_port, space_size, bigbin, bigbin_size, smallbins, smallbin_size}).
 %% ------------------------------------------------------------------
 %% API Function Definitions
 %% ------------------------------------------------------------------
@@ -56,6 +57,10 @@ server_port(Id) ->
 add_peer_if_possible(MyId, Peer) ->
     gen_server:call(?MODULE_ID(MyId), {add_peer_if_possible, Peer}).
 
+-spec update_timestamps(MyId::id(), PeerId::id(), Peers::[#peer{}]) -> ok.
+update_timestamps(MyId, PeerId, Peers) ->
+    gen_server:cast(?MODULE_ID(MyId), {update_peer, PeerId, Peers}).
+
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
@@ -71,7 +76,7 @@ init([Id, RoutingTableSpec, ServerPort]) ->
     {ok, #state{
         id=Id,
         server_port=ServerPort,
-        tablename=?ROUTINGTABLE(Id),
+        table=?ROUTINGTABLE(Id),
         space_size=SpaceSize,
         bigbin={-1, BigBin_SpaceSize}, % -1 s.t. own key will fall within this bin as well
         bigbin_size=BigBin_NodeSize,
@@ -82,10 +87,13 @@ init([Id, RoutingTableSpec, ServerPort]) ->
 handle_call(server_port, _From, State) ->
     {reply, State#state.server_port, State};
 handle_call({add_peer_if_possible, Peer}, _From, State) ->
-    {reply, add_peer_if_possible_(Peer, State#state.tablename), State};
+    {reply, add_peer_if_possible_(Peer, State), State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
+handle_cast({update_peer, PeerId, Peers}, #state{table=Table} = State) ->
+    update_timestamps_(Peers,  PeerId, Table),
+    {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -99,8 +107,21 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+-spec update_timestamps_(Peers :: [], PeerId :: id(), Table :: table()) -> true.
+update_timestamps_([],  PeerId, Table) ->
+    update_peer_(Table, PeerId, [
+        {last_peerlist_request, erlang:system_time(milli_seconds)},
+        {last_spoke, erlang:system_time(milli_seconds)}
+        ]);
+update_timestamps_(Peers, PeerId, Table) ->
+    update_peer_(Table, PeerId, [
+        {last_peerlist_request, erlang:system_time(milli_seconds)},
+        {last_spoke, erlang:system_time(milli_seconds)},
+        {last_fetched_peer, lists:max([Peer#peer.time_added || Peer <- Peers])}
+        ]).
+
 -spec add_peer_if_possible_(#peer{}, #state{}) -> add_peer_result().
-add_peer_if_possible_(Peer, #state{tablename=Table} = S) ->
+add_peer_if_possible_(Peer, #state{table=Table} = S) ->
     case peer_already_in_table_(Peer, Table) of
         true ->
             already_in_table;

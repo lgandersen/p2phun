@@ -25,7 +25,7 @@
     address :: nonempty_string(),
     server_port,
     pid=none :: none | pid(), % pid of process that maintains the connection with this peer
-    time_added :: integer(),
+    time_added=0 :: integer(),
     processed=false :: true | false,
     last_spoke=0 :: integer(),
     last_fetched_peer=0 :: integer(),

@@ -1,4 +1,5 @@
 -module(p2phun_peertable_operations).
+-include_lib("stdlib/include/ms_transform.hrl").
 -include("peer.hrl").
 
 -export([
@@ -96,7 +97,8 @@ update_peer_(Table, PeerId, Updates) ->
     UpdatedValues = lists:map(
         fun(Field) -> updating_peer__(Field, UpdatesMap) end,
         lists:zip(Fields, Values)),
-    sudo_add_peers_(Table, [list_to_tuple([peer | UpdatedValues])]).
+    Test = list_to_tuple([peer | UpdatedValues]),
+    sudo_add_peers_(Table, [Test]).
 
 -spec updating_peer__(NameAndValue :: {atom(), term()}, Update :: #{}) -> any().
 updating_peer__({FieldName, FieldValue}, Update) ->

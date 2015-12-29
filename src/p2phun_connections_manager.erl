@@ -40,7 +40,7 @@ handle_call(_Request, _From, State) ->
 
 handle_cast(plz_tend_peers, #state{my_id=MyId} = State) ->
     manage_peerlist_requests(MyId),
-    manage_peer_pinging(MyId),
+    %manage_peer_pinging(MyId),
     {noreply, State};
 handle_cast(_Msg, State) ->
     {noreply, State}.

@@ -27,7 +27,7 @@ init([#node_config{id=Id, address={_Ip, Port}} = _Node, RoutingTableSpec]) ->
     NodeProcesses = [
         #{% peertable
             id => {peertable, Id},
-            start => {p2phun_peertable, start_link, [Id, RoutingTableSpec, Port]},
+            start => {p2phun_routingtable, start_link, [Id, RoutingTableSpec, Port]},
             restart => permanent,
             shutdown => 2000,
             type => worker
