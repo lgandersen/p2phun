@@ -35,7 +35,9 @@ lager_info(Id, Msg, Param) ->
 b64(Id_Int) when is_integer(Id_Int) ->
     b64(binary:encode_unsigned(Id_Int));
 b64(Id_Bin) when is_binary(Id_Bin) ->
-    base64:encode(Id_Bin).
+    base64:encode(Id_Bin);
+b64(undefined) ->
+    undefined.
 
 bin(Id_Int) when is_integer(Id_Int) ->
     binary:encode_unsigned(Id_Int);

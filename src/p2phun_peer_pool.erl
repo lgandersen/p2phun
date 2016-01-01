@@ -50,8 +50,7 @@ connect_sync(MyId, Address, Port) ->
     {ok, ChildPid} = connect_and_notify_when_connected(MyId, Address, Port),
     receive
         {hello, none} -> {connected, ChildPid};
-        {error, Reason} -> {error, Reason};
-        Something -> {error, "Received msg not understood", Something}
+        {hello, {error, Reason}} -> {error, Reason}
     after 2000 -> timeout
     end.
 

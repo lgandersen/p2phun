@@ -27,7 +27,12 @@
     ]).
 
 %% Import utils
--import(p2phun_utils, [lager_info/3, lager_info/2]).
+-import(p2phun_utils, [
+    lager_info/3,
+    lager_info/2,
+    b64/1,
+    id2proc_name/2
+    ]).
 
 -type msg_type() :: hello | ping | peer_list | find_node.
 -type search_result() :: {peers_closer, [peer()]} | {found_node, peer()}.
@@ -137,8 +142,14 @@ terminate(normal, _StateName, #state{my_id=MyId, peer_id=PeerId, transport=Trans
     Transport:close(Sock),
     delete_peers_([PeerId], ?ROUTINGTABLE(MyId)), %FIXME should it delete or just update it as not-connected.
     lager_info(MyId, "Shutting me down!");
-terminate(Error, _StateName, #state{my_id=MyId, peer_id=PeerId}) -> %, transport=Transport, sock=Sock}) ->
-    lager_info(MyId, "-> ~p And unexpexted error occured: ~p", [p2phun_utils:b64(PeerId), Error]),
+terminate({shutdown, already_in_table}, awaiting_hello, #state{my_id=MyId, peer_id=PeerId, transport=Transport, sock=Sock}) ->
+    Transport:close(Sock),
+    lager_info(MyId, "There wasn't room for this peer in our routing table.");
+terminate({shutdown, slots_full}, awaiting_hello, #state{my_id=MyId, peer_id=PeerId, transport=Transport, sock=Sock}) ->
+    Transport:close(Sock),
+    lager_info(MyId, "There wasn't room for us in the peers routing table.");
+terminate(Error, _StateName, #state{my_id=MyId, peer_id=PeerId}) ->
+    lager_info(MyId, "-> ~p And unexpexted error occured: ~p", [b64(PeerId), Error]),
     ok.
 
 code_change(_OldVsn, StName, StData, _Extra) -> {ok, StName, StData}.
@@ -149,21 +160,25 @@ code_change(_OldVsn, StName, StData, _Extra) -> {ok, StName, StData}.
 awaiting_hello(
     {got_hello, #hello{id=PeerId, server_port=ListeningPort}},
     #state{my_id=MyId, address=Address, port=Port} = State) ->
+    lager_info(MyId, "Got hello from node ~p", [b64(PeerId)]),
     Peer = #peer{id=PeerId, address=Address, connection_port=Port, server_port=ListeningPort, pid=self(), time_added=erlang:system_time()},
     case p2phun_routingtable:add_peer_if_possible(MyId, Peer) of
         peer_added ->
-            NewCallers = notify_and_remove_callers(hello, none, State);
+            NewCallers = notify_and_remove_callers(hello, none, State),
+            case State#state.we_connected of
+              false -> send_hello(State);
+              true -> ok
+            end,
+            {next_state, connected, State#state{peer_id=PeerId, callers=NewCallers}};
         FailureReason ->
             NewCallers = notify_and_remove_callers(hello, {error, FailureReason}, State),
-            send(?CLOSING(slots_full), State),
-            gen_fsm:stop(self())
-    end,
-    case State#state.we_connected of
-      false -> send_hello(State);
-      true -> ok
-    end,
-    lager_info(MyId, "Got hello from node ~p", [p2phun_utils:b64(PeerId)]),
-    {next_state, connected, State#state{peer_id=PeerId, callers=NewCallers}};
+            send(?CLOSING(FailureReason), State),
+            {stop, {shutdown, FailureReason}, State}
+    end;
+awaiting_hello(?CLOSING(Reason), #state{my_id=MyId} = State) ->
+    lager_info(MyId, "Closing while awaiting hello. Reason from peer: ~p", [Reason]),
+    notify_and_remove_callers(hello, {error, Reason}, State),
+    {stop, {shutdown, slots_full}, State};
 awaiting_hello(SomeEvent, #state{my_id=MyId} = State) ->
     lager_info(MyId, "Awaited hello, got '~p'.", [SomeEvent]),
     {stop, unexpected_event, State}.
