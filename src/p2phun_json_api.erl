@@ -5,6 +5,8 @@
 
 -record(state, {sock, transport, buffer = <<>>}).
 
+-import(p2phun_utils, [int/2, b64/1, lager_info/3, lager_info/3]).
+
 -export([start_link/4, init/4]).
 
 %-type state() :: {state, {sock, sock()}, {transport, transport()}, {buffer, binary()}}
@@ -49,15 +51,30 @@ decode_json(#state{buffer=RawData} = State) ->
     end.
 
 -spec parse_json(EJSON :: #{}, State :: #state{}) -> ok | {error, any()}.
-parse_json(#{<<"fun">> := <<"fetch_all">>, <<"args">> := MyId}, State) ->
+parse_json(#{
+    <<"mod">> := <<"p2phun_peertable_operations">>,
+    <<"fun">> := <<"fetch_all">>,
+    <<"args">> := MyId}, State) ->
     Response = [
-        {[{id, P#peer.id}, {address, address_to_binary(P#peer.address)}, {port, P#peer.server_port}]} ||
-        P <- p2phun_peertable:fetch_all(MyId)],
+        {[{id, b64(Id)}, {address, address_to_binary(Address)}, {port, Port}]} ||
+        #peer{id=Id, address=Address, server_port=Port} = _P <- p2phun_peertable_operations:fetch_all_(?ROUTINGTABLE(int(b64, MyId)))],
     lager:info("Virker det?:~p", [Response]),
     send(Response, State);
+parse_json(#{
+    <<"mod">> := <<"p2phun_swarm">>,
+    <<"fun">> := <<"find_node">>,
+    <<"args">> := [MyId, Id2Find]}, _State) ->
+    lager:info("FIND NODE:"),
+    case p2phun_swarm:find_node(int(b64, MyId), int(b64, Id2Find)) of
+        no_node_found ->
+            lager:info("WHILE TESTING: fandt ikke en skiiiid!"),
+            no_node_found;
+        {node_found, {NodeId, PeerPid}} ->
+            lager:info("WHILE TESTING: ~p ~p", [NodeId, PeerPid])
+    end;
+    %send(Response, State);
 parse_json(EJSON, _State) ->
     lager:info("HER ER DER SGU NOGET JSON MAAYN:~p", [EJSON]).
-
 
 send(Msg, #state{transport=Transport, sock=Sock}) ->
     Resp = jiffy:encode(Msg),

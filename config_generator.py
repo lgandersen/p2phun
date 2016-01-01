@@ -94,7 +94,7 @@ if __name__ == '__main__':
     table_spec = RoutingTableSpec(
         space_size=space_size,
         bigbin_spacesize=int(space_size/4),
-        bigbin_nodesize=10,
+        bigbin_nodesize=8,
         number_of_smallbins=3,
         smallbin_nodesize=3
         )

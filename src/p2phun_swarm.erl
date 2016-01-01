@@ -41,7 +41,7 @@
 start_link(MyId) ->
     gen_server:start_link({local, ?MODULE_ID(MyId)}, ?MODULE, [MyId], []).
 
--spec find_node(MyId :: id(), Id2Find :: id()) -> [response()].
+-spec find_node(MyId :: id(), Id2Find :: id()) -> response().
 find_node(MyId, Id2Find) ->
     gen_server:cast(?MODULE_ID(MyId), {find_node, Id2Find, self()}),
     receive

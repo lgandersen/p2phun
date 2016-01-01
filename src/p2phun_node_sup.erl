@@ -5,7 +5,7 @@
 -include("peer.hrl").
 
 %% API
--export([start_link/2]).
+-export([start_link/2, start_link_no_manager/2]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -19,13 +19,20 @@
 start_link(#node_config{id=Id} = Node, RoutingTableSpec) ->
     supervisor:start_link({local, ?MODULE_ID(Id)}, ?MODULE, [Node, RoutingTableSpec]).
 
+start_link_no_manager(#node_config{id=Id} = Node, RoutingTableSpec) ->
+    supervisor:start_link({local, ?MODULE_ID(Id)}, ?MODULE, [Node, RoutingTableSpec, no_manager]).
+
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
 
-init([#node_config{id=Id, address={_Ip, Port}} = _Node, RoutingTableSpec]) ->
-    NodeProcesses = [
-        #{% peertable
+init([Node, RoutingTableSpec, no_manager]) ->
+    {ok, {{rest_for_one, 5, 10}, mandatory_child_specs(Node, RoutingTableSpec)}};
+init([Node, RoutingTableSpec]) ->
+    {ok, {{rest_for_one, 5, 10}, mandatory_child_specs(Node, RoutingTableSpec) ++ manager_child_spec(Node)}}.
+
+mandatory_child_specs(#node_config{id=Id, address={_Ip, Port}} = _Node, RoutingTableSpec) ->
+        [#{% peertable
             id => {peertable, Id},
             start => {p2phun_routingtable, start_link, [Id, RoutingTableSpec, Port]},
             restart => permanent,
@@ -45,13 +52,14 @@ init([#node_config{id=Id, address={_Ip, Port}} = _Node, RoutingTableSpec]) ->
             restart => permanent,
             shutdown => 2000,
             type => supervisor
-        },
-        #{% peer connections manager
-            id => {p2phun_connections_manager, Id},
-            start => {p2phun_connections_manager, start_link, [Id]},
-            restart => permanent,
-            shutdown => 2000,
-            type => worker
         }
-        ],
-    {ok, {{rest_for_one, 5, 10}, NodeProcesses}}.
+        ].
+
+manager_child_spec(#node_config{id=Id} = _Node) ->
+    [#{ % peer connections manager
+        id => {p2phun_connections_manager, Id},
+        start => {p2phun_connections_manager, start_link, [Id]},
+        restart => permanent,
+        shutdown => 2000,
+        type => worker
+    }].

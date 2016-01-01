@@ -16,7 +16,7 @@ def _parse_json(raw_data):
         return None, raw_data
     return py_json, raw_data[pos:]
 
-class P2phunRPC:
+class P2PhunRPC:
     def __init__(self, address, port):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.connect((address, port))
@@ -33,8 +33,12 @@ class P2phunRPC:
                 return py_json
     
     def fetch_routing_table(self, my_id):
-        self.s.send(b'{"fun":"fetch_all", "args":"' + my_id + b'"}')
+        self.s.send(b'{"mod":"p2phun_peertable_operations", "fun":"fetch_all", "args":"' + my_id + b'"}')
         return self._get_result()
+
+    def find_node(self, my_id, id2find):
+        msg = b'{"mod":"p2phun_swarm", "fun":"find_node", "args":["' + my_id + b'","' + id2find + b'"]}'
+        self.s.send(msg)
     
     def shutdown(self):
         self.s.close()
@@ -42,7 +46,10 @@ class P2phunRPC:
 if __name__ == '__main__':
     ADDRESS = "10.0.2.6"
     PORT = 4999
-    rpc = P2phunRPC(ADDRESS, PORT)
-    swarm_ids = [node.my_id for node in nodes]
-    result = [rpc.fetch_routing_table(peer_id) for peer_id in swarm_ids]
-    print(result)
+    rpc = P2PhunRPC(ADDRESS, PORT)
+    swarm_ids = [node.myid_b64 for node in nodes]
+    #result = [rpc.fetch_routing_table(peer_id) for peer_id in swarm_ids]
+    #print(result)
+    node_id = nodes[0].myid_b64
+    id2find = nodes[1].myid_b64
+    rpc.find_node(node_id, id2find)

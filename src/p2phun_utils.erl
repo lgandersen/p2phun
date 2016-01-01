@@ -1,11 +1,17 @@
 -module(p2phun_utils).
 -include("peer.hrl").
 
--export([id2proc_name/2, peer_process_name/2, lager_info/3, lager_info/2]).
-
--export([floor/1, ceiling/1]).
-
--export([b64/1, bin/1, int/2]).
+-export([
+    id2proc_name/2,
+    peer_process_name/2,
+    lager_info/3,
+    lager_info/2,
+    floor/1,
+    ceiling/1,
+    b64/1,
+    bin/1,
+    int/2
+    ]).
 
 -spec id2proc_name(BaseName :: atom(), Id :: integer() | binary()) -> atom().
 id2proc_name(BaseName, Id) when is_atom(BaseName), is_integer(Id) -> 
