@@ -3,18 +3,19 @@
 -define(ROUTINGTABLE(Id), p2phun_utils:id2proc_name(peer_table, Id)).
 -define(KEYSPACE_SIZE, math:pow(2, 6 * 8)). % Present keyspace_size as used in python config generator script-record(node_config, {id, address, bootstrap_peers}).
 
--define(REQUEST(Msg), {request, Msg}).
--define(RESPONSE(Msg), {response, Msg}).
-
-%% Messages
--define(PING, {ping, none}).
--define(CLOSING(Reason), {closing_connection, Reason}).
-
 -type error() :: {already_started, pid()} | term().
 -type id() :: non_neg_integer().
 -type table() :: ets:tid() | atom().
--type address_port() :: {nonempty_string(), inet:port_number()}.
+-type location() :: {nonempty_string(), inet:port_number()}. %should be inet:address()
 
+-type msg_type() :: hello | closing_connection| ping | peer_list | find_node.
+-type msg_kind() :: request | response | connection_control.
+
+-record(msg, {
+    kind :: msg_kind(),
+    type :: msg_type(),
+    data=none :: term()
+    }).
 
 -record(hello, {
     id :: id(),
@@ -23,8 +24,8 @@
 
 -record(node_config, {
     id :: id() | base64:ascii_string(),
-    address :: address_port(),
-    bootstrap_peers=[] :: [address_port()]
+    address :: location(),
+    bootstrap_peers=[] :: [location()]
     }).
 
 -record(peer, {

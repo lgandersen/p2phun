@@ -23,7 +23,10 @@ start(_StartType, _StartArgs) ->
     {ok, SupPid}.
 
 bootstrap_list(#node_config{id=Id, bootstrap_peers=Peers} = _Node) ->
-    Connect = fun ({Address, Port} = _Peer) -> p2phun_peer_pool:connect(Id, Address, Port) end,
+    Connect = fun ({Address, Port} = _Peer) ->
+        timer:sleep(100),
+        p2phun_peer_pool:connect(Id, Address, Port)
+        end,
     lists:foreach(Connect, Peers).
 
 stop(_State) -> ok.

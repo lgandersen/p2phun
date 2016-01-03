@@ -80,10 +80,13 @@ manage_peerlist_requests(MyId) ->
 
 -spec request_peers_and_connect(MyId::id(), PeerPid::pid()) -> ok.
 request_peers_and_connect(MyId, PeerPid) ->
-    Peers = p2phun_peer:request_peerlist(PeerPid),
-    Peers2Add = lists:filter(
-        fun(#peer{id=Id} = _P) -> Id =/= MyId end,
-        peers_not_in_table_(?ROUTINGTABLE(MyId), Peers)),
-    lists:foreach(
-        fun(#peer{address=Address, server_port=Port}=_Peer) -> p2phun_peer_pool:connect(MyId, Address, Port) end,
-        Peers2Add).
+    case p2phun_peer:request_peerlist(PeerPid) of
+        error -> lager:info("An error occured during peerlist request");
+        Peers ->
+            Peers2Add = lists:filter(
+                fun(#peer{id=Id} = _P) -> Id =/= MyId end,
+                peers_not_in_table_(?ROUTINGTABLE(MyId), Peers)), %<-- this should probably be checke JUST before attempting to connect
+            lists:foreach(
+                fun(#peer{address=Address, server_port=Port}=_Peer) -> p2phun_peer_pool:connect(MyId, Address, Port) end,
+                Peers2Add)
+    end.
