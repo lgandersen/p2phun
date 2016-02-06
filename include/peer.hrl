@@ -1,6 +1,7 @@
 -define(MAX_TABLE_FETCH, 100).
 -define(MODULE_ID(Id), p2phun_utils:id2proc_name(?MODULE, Id)).
 -define(ROUTINGTABLE(Id), p2phun_utils:id2proc_name(peer_table, Id)).
+-define(PEERPOOL(Id), {peer_pool, Id}).
 -define(KEYSPACE_SIZE, math:pow(2, 6 * 8)). % Present keyspace_size as used in python config generator script-record(node_config, {id, address, bootstrap_peers}).
 
 -type error() :: {already_started, pid()} | term().

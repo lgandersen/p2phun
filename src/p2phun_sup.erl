@@ -33,6 +33,8 @@ init([{Nodes, RoutingTableSpec, {_JsonAPIAddress, JsonAPIPort}}]) ->
             shutdown => 2000,
             type => supervisor
         },
+    RanchSupSpec = {ranch_sup, {ranch_sup, start_link, []},
+        permanent, 5000, supervisor, [ranch_sup]},
     NodeSupervisors = lists:map(
         fun(#node_config{id=Id} = Node) ->
             #{id => {p2phun_node_supervisor, Id},
@@ -43,4 +45,4 @@ init([{Nodes, RoutingTableSpec, {_JsonAPIAddress, JsonAPIPort}}]) ->
         end,
         Nodes
         ),
-    {ok, {{one_for_one, 5, 10}, [JsonApi | NodeSupervisors]}}.
+    {ok, {{one_for_one, 5, 10}, [JsonApi, RanchSupSpec | NodeSupervisors]}}.

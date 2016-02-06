@@ -39,15 +39,10 @@ mandatory_child_specs(#node_config{id=Id, address={_Ip, Port}} = _Node, RoutingT
             shutdown => 2000,
             type => worker
         },
-        #{% port listener
-            id => {ranch_listener, Id},
-            start => {ranch, start_listener, [{p2phun_peer_pool, Id}, 2, ranch_tcp, [{port, Port}], p2phun_peer_pool, [Id]]},
-            restart => permanent,
-            shutdown => 2000,
-            type => supervisor
-        },
+        % port listener
+        ranch:child_spec(?PEERPOOL(Id), 2, ranch_tcp, [{port, Port}], p2phun_peer_pool, [Id]),
         #{% peer pool
-            id => {peer_pool, Id},
+            id => ?PEERPOOL(Id),
             start => {p2phun_peer_pool, start_link, [Id]},
             restart => permanent,
             shutdown => 2000,

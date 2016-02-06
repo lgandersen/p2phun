@@ -58,7 +58,7 @@ ping(PeerPid) ->
     receive {ping, none} -> ok
     after 5000 -> ping_timeout end.
 
--spec request_peerlist(pid()) -> [peer()].
+-spec request_peerlist(pid()) -> [peer()] | error.
 request_peerlist(PeerPid) ->
     gen_fsm:send_event(PeerPid, {from_pid, self(), #msg{kind=request, type=peer_list}}),
     receive
@@ -131,13 +131,15 @@ handle_info({tcp, Sock, RawData}, StateName, State) ->
     inet:setopts(Sock, [{active, once}]),
     {next_state, StateName, NewState};
 handle_info({tcp_closed, _Socket}, _StateName, State) ->
-    {stop, connection_closed, State};
+    %supervisor:terminate_child(?PEERPOOL(State#state.my_id), self()),
+    {stop, {shutdown, connection_closed}, State};
 handle_info(_Info, _StName, StData) ->
     {stop, unrecognized_message_received, StData}.
 
 terminate(normal, _StateName, #state{my_id=MyId, peer_id=PeerId, transport=Transport, sock=Sock}) ->
     Transport:close(Sock),
-    delete_peers_([PeerId], ?ROUTINGTABLE(MyId)), %FIXME should it delete or just update it as not-connected.
+    lager_info(MyId, "MYID ~p table.", [MyId]),
+    p2phun_routingtable:delete_peers(MyId, [PeerId]), %FIXME should it delete or just update it as not-connected.
     lager_info(MyId, "Shutting me down!");
 terminate({shutdown, already_in_table}, awaiting_hello, #state{my_id=MyId, transport=Transport, sock=Sock}) ->
     Transport:close(Sock),
@@ -145,9 +147,10 @@ terminate({shutdown, already_in_table}, awaiting_hello, #state{my_id=MyId, trans
 terminate({shutdown, slots_full}, awaiting_hello, #state{my_id=MyId, transport=Transport, sock=Sock}) ->
     Transport:close(Sock),
     lager_info(MyId, "There wasn't room for us in the peers routing table.");
-terminate(connection_closed, _StateName, #state{my_id=MyId, peer_id=PeerId, transport=Transport, sock=Sock}) ->
+terminate({shutdown, connection_closed}, _StateName, #state{my_id=MyId, peer_id=PeerId, transport=Transport, sock=Sock}) ->
     Transport:close(Sock),
-    delete_peers_([PeerId], ?ROUTINGTABLE(MyId));
+    lager_info(MyId, "MYID ~p table.", [MyId]),
+    p2phun_routingtable:delete_peers(MyId, [PeerId]);
 terminate(Error, _StateName, #state{my_id=MyId, peer_id=PeerId}) ->
     lager_info(MyId, "-> ~p And unexpexted error occured: ~p", [b64(PeerId), Error]),
     ok.

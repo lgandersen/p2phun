@@ -9,7 +9,8 @@
 -import(p2phun_peertable_operations, [
     peer_already_in_table_/2,
     sudo_add_peers_/2,
-    update_peer_/3
+    update_peer_/3,
+    delete_peers_/2
     ]).
 
 
@@ -19,7 +20,7 @@
 %% ------------------------------------------------------------------
 %% API Function Exports
 %% ------------------------------------------------------------------
--export([start_link/3, server_port/1, update_timestamps/3, add_peer_if_possible/2]).
+-export([start_link/3, server_port/1, update_timestamps/3, add_peer_if_possible/2, delete_peers/2]).
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
 %%  ------------------------------------------------------------------
@@ -57,6 +58,10 @@ server_port(Id) ->
 add_peer_if_possible(MyId, Peer) ->
     gen_server:call(?MODULE_ID(MyId), {add_peer_if_possible, Peer}).
 
+-spec delete_peers(id(), [id()]) -> ok.
+delete_peers(MyId, Peers) ->
+    gen_server:cast(?MODULE_ID(MyId), {delete_peers, Peers}).
+
 -spec update_timestamps(MyId::id(), PeerId::id(), Peers::[#peer{}]) -> ok.
 update_timestamps(MyId, PeerId, Peers) ->
     gen_server:cast(?MODULE_ID(MyId), {update_peer, PeerId, Peers}).
@@ -91,6 +96,9 @@ handle_call({add_peer_if_possible, Peer}, _From, State) ->
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
+handle_cast({delete_peers, Peers}, #state{table=Table} = State) ->
+    delete_peers_(Peers, Table),
+    {noreply, State};
 handle_cast({update_peer, PeerId, Peers}, #state{table=Table} = State) ->
     update_timestamps_(Peers,  PeerId, Table),
     {noreply, State};
