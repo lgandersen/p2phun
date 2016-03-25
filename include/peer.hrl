@@ -32,7 +32,7 @@
 -record(peer, {
     id :: p2phun_types:id(),
     connection_port=none :: none | inet:port_number(),
-    address :: nonempty_string(),
+    address :: inet:ip_address() | inet:hostname(),
     server_port,
     pid=none :: none | pid(), % pid of process that maintains the connection with this peer
     time_added=0 :: integer(),

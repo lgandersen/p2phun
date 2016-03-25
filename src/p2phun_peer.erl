@@ -131,7 +131,6 @@ handle_info({tcp, Sock, RawData}, StateName, State) ->
     inet:setopts(Sock, [{active, once}]),
     {next_state, StateName, NewState};
 handle_info({tcp_closed, _Socket}, _StateName, State) ->
-    %supervisor:terminate_child(?PEERPOOL(State#state.my_id), self()),
     {stop, {shutdown, connection_closed}, State};
 handle_info(_Info, _StName, StData) ->
     {stop, unrecognized_message_received, StData}.
@@ -187,7 +186,7 @@ awaiting_hello(SomeEvent, #state{my_id=MyId} = State) ->
     {stop, unexpected_event, State}.
 
 connected({from_peer, Msg}, State) ->
-    send_response_to_peer(Msg, State),
+    respond_to_peer_request(Msg, State),
     {next_state, connected, State};
 connected({from_pid, RequestersPid, Msg}, State) ->
     NewState = forward_request_to_peer(Msg, RequestersPid, State),
@@ -214,12 +213,12 @@ send_hello(#state{my_id=MyId} = State) ->
     HelloMsg = #hello{id=MyId, server_port=ListeningPort},
     send({hello, HelloMsg}, State).
 
--spec send_response_to_peer(Request :: #msg{}, #state{}) -> ok | {error, closed | inet:posix()}.
-send_response_to_peer(#msg{type=ping}, State) ->
+-spec respond_to_peer_request(Request :: #msg{}, #state{}) -> ok | {error, closed | inet:posix()}.
+respond_to_peer_request(#msg{type=ping}, State) ->
     send(#msg{kind=response, type=ping}, State);
-send_response_to_peer(#msg{type=peer_list, data={peer_age_above, TimeStamp}}, State) ->
-    send_peerlist_(TimeStamp, State), State;
-send_response_to_peer(#msg{type=find_node, data=Id2Find}, State) ->
+respond_to_peer_request(#msg{type=peer_list, data={peer_age_above, TimeStamp}}, State) ->
+    send_peerlist_(TimeStamp, State);
+respond_to_peer_request(#msg{type=find_node, data=Id2Find}, State) ->
     search_node_and_send_result(Id2Find, State).
 
 -spec send_peerlist_(TimeStamp :: integer(), State :: #state{}) -> send_result().
@@ -231,9 +230,9 @@ send_peerlist_(TimeStamp, #state{my_id=MyId} = State) ->
 search_node_and_send_result(NodeId2Find, #state{my_id=MyId} = State) ->
     % Worst distance that should be acceptable (Should be dynamically defined at some point)
     MaxDistance = p2phun_utils:floor(?KEYSPACE_SIZE / 2),
-    Peers = fetch_peers_closest_to_id_(MyId, NodeId2Find, MaxDistance, 10),
+    Peers = fetch_peers_closest_to_id_(?ROUTINGTABLE(MyId), NodeId2Find, MaxDistance, 10),
     SearchResult = case lists:keyfind(NodeId2Find, 2, Peers) of
-        false -> {peers_closer, Peers};
+        false -> {peers_closest, Peers};
         Node -> {found_node, Node}
     end,
     send(#msg{kind=response, type=find_node, data=SearchResult}, State).
