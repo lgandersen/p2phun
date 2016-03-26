@@ -6,10 +6,12 @@
 
 %% API functions
 -export([
-    start_link/1,
+    start_link/2,
     find_node/2,
     add_peers_not_in_table/2,
-    next_peer/1]).
+    next_peer/1,
+    nsearchers/2,
+    my_state/1]).
 
 %% gen_server callbacks
 -export([
@@ -37,9 +39,9 @@
 %%%===================================================================
 -type response() :: no_node_found | {node_found, {NodeId :: id(), PeerPid :: pid()}}.
 
--spec start_link(id()) -> {ok, pid()} | ignore | {error, error()}.
-start_link(MyId) ->
-    gen_server:start_link({local, ?MODULE_ID(MyId)}, ?MODULE, [MyId], []).
+-spec start_link(id(), pos_integer()) -> {ok, pid()} | ignore | {error, error()}.
+start_link(MyId, NSearchers) ->
+    gen_server:start_link({local, ?MODULE_ID(MyId)}, ?MODULE, [MyId, NSearchers], []).
 
 -spec find_node(MyId :: id(), Id2Find :: id()) -> response().
 find_node(MyId, Id2Find) ->
@@ -56,17 +58,21 @@ add_peers_not_in_table(MyId, Peers) ->
 next_peer(MyId) ->
     gen_server:call(?MODULE_ID(MyId), next_peer).
 
+-spec nsearchers(id(), pos_integer()) -> ok.
+nsearchers(MyId, NSearchers) ->
+    gen_server:call(?MODULE_ID(MyId), {nsearchers, NSearchers}).
+
+-spec my_state(id()) -> #state{}.
+my_state(MyId) ->
+    gen_server:call(?MODULE_ID(MyId), get_state).
+
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
-
-init([MyId]) ->
-    NSearchers = 3, % This should be supplied on startup (and changed at will)
-    Cache = ets:new(result_cache, [set, {keypos, 2}]),
-    Searchers = lists:map(
-        fun(_N) -> spawn_link(p2phun_searcher, start_link, [MyId, Cache]) end,
-        lists:seq(1, NSearchers)),
-    {ok, #state{my_id=MyId, cache=Cache, searchers=Searchers, nsearchers=NSearchers, responses=[]}}.
+init([MyId, NSearchers]) ->
+    State = #state{my_id=MyId, cache=ets:new(result_cache, [set, {keypos, 2}])},
+    Searchers = create_searchers(NSearchers, State),
+    {ok, State#state{searchers=Searchers, nsearchers=NSearchers, responses=[]}}.
 
 handle_call(next_peer, _From, #state{id2find=Id2Find, cache=Cache} = State) ->
     case fetch_peers_closest_to_id_and_not_processed(
@@ -74,9 +80,13 @@ handle_call(next_peer, _From, #state{id2find=Id2Find, cache=Cache} = State) ->
         [Peer] ->
             update_peer_(Cache, Peer#peer.id, [{processed, true}]),
             {reply, Peer, State};
-        [] -> 
+        [] ->
             {reply, no_peer_found, State}
     end;
+handle_call({nsearchers, NSearchsNew}, _From, State) ->
+    {reply, ok, adjust_nsearchers(NSearchsNew, State)};
+handle_call(get_state, _From, State) ->
+    {reply, State, State};
 handle_call(_Request, _From, State) ->
     Reply = ok,
     {reply, Reply, State}.
@@ -115,7 +125,6 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-
 -spec handle_responses(response(), #state{}) -> #state{}.
 handle_responses(NewResponse, #state{responses=Responses, nsearchers=NSearchers, caller_pid=CallerPid} = State) ->
     ResponsesNew = [NewResponse, Responses],
@@ -127,3 +136,21 @@ handle_responses(NewResponse, #state{responses=Responses, nsearchers=NSearchers,
         _ ->
             State#state{responses=ResponsesNew}
     end.
+
+-spec adjust_nsearchers(pos_integer(), #state{}) -> #state{}.
+adjust_nsearchers(NSearchsNew, #state{nsearchers=NSearchsOld, searchers=Searchers} = State) when NSearchsNew < NSearchsOld ->
+    Searchers2Remove = lists:nthtail(NSearchsNew, Searchers),
+    lists:foreach(fun(Pid) -> exit(Pid, shutdown) end, Searchers2Remove),
+    State#state{nsearchers=NSearchsNew, searchers=lists:sublist(Searchers, NSearchsNew)};
+adjust_nsearchers(NSearchsNew, #state{nsearchers=NSearchsOld, searchers=Searchers} = State) when NSearchsNew > NSearchsOld ->
+    NewSearchers = create_searchers(NSearchsNew - NSearchsOld, State),
+    State#state{nsearchers=NSearchsNew, searchers=lists:append(Searchers, NewSearchers)};
+adjust_nsearchers(NSearchsNew, #state{nsearchers=NSearchsOld} = State) when NSearchsNew =:= NSearchsOld ->
+    State.
+
+-spec create_searchers(pos_integer(), #state{}) -> [pid()].
+create_searchers(Searchers2Create, #state{cache=Cache, my_id=MyId}) ->
+    lists:map(
+        fun(_N) -> spawn_link(p2phun_searcher, start_link, [MyId, Cache]) end,
+        lists:seq(1, Searchers2Create)
+     ).
