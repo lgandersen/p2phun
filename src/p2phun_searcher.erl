@@ -16,8 +16,9 @@
          code_change/3]).
 
 -record(state, {my_id, cache, id2find, caller_pid, peer_pid}).
+-record(lookup, {type, key2find, caller_pid}).
 
--type request() :: {node, Id2Find :: id(), CallerPid :: pid()}.
+-type result() :: {find_node, Id2Find :: id(), CallerPid :: pid()}.
 
 %%%===================================================================
 %%% API functions
@@ -27,9 +28,9 @@
 start_link(MyId, Cache) ->
     gen_server:start_link(?MODULE, [MyId, Cache], []).
 
--spec find(request(), pid()) -> ok.
-find(Request, SearcherPid) ->
-    gen_server:cast(SearcherPid, Request).
+-spec find(pid(), {find_node, id()}) -> ok.
+find(SearcherPid, {find_node, NodeId}) ->
+    gen_server:cast(SearcherPid, #lookup{type=node, key2find=NodeId, caller_pid=self()}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -38,40 +39,26 @@ find(Request, SearcherPid) ->
 init([MyId, Cache]) -> {ok, #state{my_id=MyId, cache=Cache}}.
 
 handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
+    {reply, ok, State}.
 
-handle_cast({find_node, NodeId, CallerPid}, State) ->
-    NewState = State#state{caller_pid=CallerPid, id2find=NodeId},
-    {ok, NewState} = prepare_next_peer(NewState),
+handle_cast(#lookup{type=node, key2find=NodeId, caller_pid=CallerPid}, State) ->
+    NewState = prepare_next_peer(State#state{caller_pid=CallerPid, id2find=NodeId}),
     {noreply, NewState};
-handle_cast(ask_next_node, State) ->
-    {ok, NewState} = prepare_next_peer(State),
-    {noreply, NewState}.
+handle_cast(_Msg, State) ->
+    {noreply, State}.
 
-prepare_next_peer(#state{my_id=MyId, caller_pid=CallerPid} = State) ->
-    case p2phun_swarm:next_peer(MyId) of
-        no_peer_found ->
-            NewState = State#state{peer_pid=undefined, id2find=undefined, caller_pid=undefined},
-            CallerPid ! {result, no_node_found};
-        Peer ->
-            #peer{address=Address, server_port=Port} = Peer,
-            PeerPid = p2phun_peer_pool:connect_and_notify_when_connected(MyId, Address, Port),
-            NewState = State#state{peer_pid=PeerPid}
-    end,
-    {ok, NewState}.
-
-
-handle_info({ok, got_hello}, #state{my_id=MyId, peer_pid=PeerPid, id2find=NodeId, caller_pid=CallerPid} = State) ->
-    case p2phun_peer:find_peer(PeerPid, NodeId) of
+handle_info({ok, got_hello}, #state{peer_pid=PeerPid, id2find=NodeId, caller_pid=CallerPid} = State) ->
+    % TODO check if this peer have the right node id and return the result
+    NewState = case p2phun_peer:find_peer(PeerPid, NodeId) of
         {peers_closer, Peers} ->
-            p2phun_swarm:add_peers_not_in_table(MyId, Peers),
+            CallerPid ! #search_findings{searcher=self(), type=nodes_closer, data=Peers},
             p2phun_peer:close_connection(PeerPid),
-            gen_server:cast(self(), ask_next_node);
+            prepare_next_peer(State);
         {found_node, Node} ->
-            CallerPid ! {result, {node_found, {Node, PeerPid}}} % Is this the proper format.
+            CallerPid ! #search_findings{searcher=self(), type=node_found, data={Node, PeerPid}},
+            State
     end,
-    {noreply, State};
+    {noreply, NewState};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -84,3 +71,14 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
+prepare_next_peer(#state{my_id=MyId, caller_pid=CallerPid} = State) ->
+    NewState = case p2phun_swarm:next_peer(MyId) of
+        no_peer_found ->
+            CallerPid ! #search_findings{searcher=self(), type=no_more_peers_in_cache},
+            State#state{peer_pid=undefined, id2find=undefined, caller_pid=undefined};
+        Peer ->
+            #peer{address=Address, server_port=Port} = Peer,
+            PeerPid = p2phun_peer_pool:connect_and_notify_when_connected(MyId, Address, Port),
+            State#state{peer_pid=PeerPid}
+    end,
+    NewState.

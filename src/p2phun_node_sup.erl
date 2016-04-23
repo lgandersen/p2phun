@@ -47,6 +47,13 @@ mandatory_child_specs(#node_config{id=Id, address={_Ip, Port}} = _Node, RoutingT
             restart => permanent,
             shutdown => 2000,
             type => supervisor
+        },
+        #{% Swarm query-layer
+            id => ?SWARM(Id),
+            start => {p2phun_swarm, start_link, [Id, 3]}, % integer is number of searcher-processes.
+            restart => permanent,
+            shutdown => 2000,
+            type => worker
         }
         ].
 

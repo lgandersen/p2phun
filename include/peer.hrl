@@ -2,6 +2,7 @@
 -define(MODULE_ID(Id), p2phun_utils:id2proc_name(?MODULE, Id)).
 -define(ROUTINGTABLE(Id), p2phun_utils:id2proc_name(peer_table, Id)).
 -define(PEERPOOL(Id), {peer_pool, Id}).
+-define(SWARM(Id), {swarm, Id}).
 -define(KEYSPACE_SIZE, math:pow(2, 6 * 8)). % Present keyspace_size as used in python config generator script-record(node_config, {id, address, bootstrap_peers}).
 
 -type error() :: {already_started, pid()} | term().
@@ -42,4 +43,15 @@
     last_peerlist_request=0 :: integer()
     }).
 
+-record(search_findings, {
+    searcher :: pid(),
+    type :: nodes_closer | node_found | no_more_peers_in_cache,
+    data=no_data :: no_data | [#peer{}] | {p2phun_types:id(), pid()}
+    }).
+
 -type peer() :: #peer{}.
+
+% Test-related:
+-define(NODE(Id), #node_config{id=Id, address={?LOCALHOST, 5000 + Id}}).
+-define(LOCALHOST, {10,0,2,6}).
+-define(PEER(Id), #peer{id=Id, address=?LOCALHOST, server_port=5000 + Id}).
