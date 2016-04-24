@@ -43,14 +43,14 @@ connect(MyId, Address, Port) ->
 
 -spec connect_and_notify_when_connected(MyId :: id(), Address :: nonempty_string(), Port :: inet:port_number()) -> {ok, pid()} | {error, term()}.
 connect_and_notify_when_connected(MyId, Address, Port) ->
-    supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => [{hello, self()}]}]).
+    supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => [{got_hello, self()}]}]).
 
 -spec connect_sync(MyId :: id(), Address :: nonempty_string(), Port :: inet:port_number()) -> {connected, pid()} | {error, term()}.
 connect_sync(MyId, Address, Port) ->
     {ok, ChildPid} = connect_and_notify_when_connected(MyId, Address, Port),
     receive
-        {hello, none} -> {connected, ChildPid};
-        {hello, {error, Reason}} -> {error, Reason}
+        {got_hello, {error, Reason}} -> {error, Reason};
+        {got_hello, _PeerId} -> {connected, ChildPid}
     after 2000 -> timeout
     end.
 

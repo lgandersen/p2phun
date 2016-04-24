@@ -37,7 +37,7 @@
 -type search_result() :: {peers_closer, [peer()]} | {found_node, peer()}.
 -type send_result() :: ok | {error, closed | inet:posix()}.
 
--record(state, {my_id, peer_id, we_connected, send, address, port, transport, sock, callers=[]}).
+-define(STATE, #peer_state).
 
 
 %% ------------------------------------------------------------------
@@ -76,6 +76,10 @@ find_peer(PeerPid, Id2Find) ->
 close_connection(PeerPid) ->
     gen_fsm:stop(PeerPid).
 
+-spec my_state(pid()) -> ?STATE{}.
+my_state(PeerPid) ->
+    gen_fsm:sync_send_all_state_event(PeerPid, get_state).
+
 %% ------------------------------------------------------------------
 %% gen_fsm Function Definitions
 %% ------------------------------------------------------------------
@@ -101,7 +105,7 @@ init(State) ->
 
 initialize(MyId, Sock, Transport, WeConnected, Callers) ->
     {ok, [{Address, Port}]} = inet:peernames(Sock),
-    #state{
+    ?STATE{
         my_id=MyId,
         we_connected=WeConnected,
         address=Address,
@@ -113,14 +117,14 @@ initialize(MyId, Sock, Transport, WeConnected, Callers) ->
 handle_event(_Event, StateName, State) ->
     {next_state, StateName, State}.
 
-handle_sync_event(_Event, _From, _StName, StData) ->
-    {stop, unimplemented, StData}.
+handle_sync_event(get_state, _From, StateName, State) ->
+    {reply, State, StateName, State}.
 
 handle_info({tcp, Sock, RawData}, StateName, State) ->
     NewState = case binary_to_term(RawData) of
         {hello, #hello{id=PeerId} = HelloMsg} ->
             gen_fsm:send_event(self(), {got_hello, HelloMsg}),
-            State#state{peer_id=PeerId};
+            State?STATE{peer_id=PeerId};
         #msg{kind=request} = Msg ->
             gen_fsm:send_event(self(), {from_peer, Msg}), State;
         #msg{} = Msg ->
@@ -135,22 +139,22 @@ handle_info({tcp_closed, _Socket}, _StateName, State) ->
 handle_info(_Info, _StName, StData) ->
     {stop, unrecognized_message_received, StData}.
 
-terminate(normal, _StateName, #state{my_id=MyId, peer_id=PeerId, transport=Transport, sock=Sock}) ->
+terminate(normal, _StateName, ?STATE{my_id=MyId, peer_id=PeerId, transport=Transport, sock=Sock}) ->
     Transport:close(Sock),
     lager_info(MyId, "MYID ~p table.", [MyId]),
     p2phun_routingtable:delete_peers(MyId, [PeerId]), %FIXME should it delete or just update it as not-connected.
     lager_info(MyId, "Shutting me down!");
-terminate({shutdown, already_in_table}, awaiting_hello, #state{my_id=MyId, transport=Transport, sock=Sock}) ->
+terminate({shutdown, already_in_table}, awaiting_hello, ?STATE{my_id=MyId, transport=Transport, sock=Sock}) ->
     Transport:close(Sock),
     lager_info(MyId, "This peer is already in our routing table.");
-terminate({shutdown, slots_full}, awaiting_hello, #state{my_id=MyId, transport=Transport, sock=Sock}) ->
+terminate({shutdown, slots_full}, awaiting_hello, ?STATE{my_id=MyId, transport=Transport, sock=Sock}) ->
     Transport:close(Sock),
     lager_info(MyId, "There wasn't room for us in the peers routing table.");
-terminate({shutdown, connection_closed}, _StateName, #state{my_id=MyId, peer_id=PeerId, transport=Transport, sock=Sock}) ->
+terminate({shutdown, connection_closed}, _StateName, ?STATE{my_id=MyId, peer_id=PeerId, transport=Transport, sock=Sock}) ->
     Transport:close(Sock),
     lager_info(MyId, "MYID ~p table.", [MyId]),
     p2phun_routingtable:delete_peers(MyId, [PeerId]);
-terminate(Error, _StateName, #state{my_id=MyId, peer_id=PeerId}) ->
+terminate(Error, _StateName, ?STATE{my_id=MyId, peer_id=PeerId}) ->
     lager_info(MyId, "-> ~p And unexpexted error occured: ~p", [b64(PeerId), Error]),
     ok.
 
@@ -161,27 +165,27 @@ code_change(_OldVsn, StName, StData, _Extra) -> {ok, StName, StData}.
 %% ------------------------------------------------------------------
 awaiting_hello(
     {got_hello, #hello{id=PeerId, server_port=ListeningPort}},
-    #state{my_id=MyId, address=Address, port=Port} = State) ->
+    ?STATE{my_id=MyId, address=Address, port=Port} = State) ->
     lager_info(MyId, "Got hello from node ~p", [b64(PeerId)]),
     Peer = #peer{id=PeerId, address=Address, connection_port=Port, server_port=ListeningPort, pid=self(), time_added=erlang:system_time()},
     case p2phun_routingtable:add_peer_if_possible(MyId, Peer) of
         peer_added ->
-            NewCallers = notify_and_remove_callers(hello, none, State),
-            case State#state.we_connected of
+            NewCallers = notify_and_remove_callers(got_hello, PeerId, State),
+            case State?STATE.we_connected of
               false -> send_hello(State);
               true -> ok
             end,
-            {next_state, connected, State#state{peer_id=PeerId, callers=NewCallers}};
+            {next_state, connected, State?STATE{peer_id=PeerId, callers=NewCallers}};
         FailureReason ->
-            notify_and_remove_callers(hello, {error, FailureReason}, State),
+            notify_and_remove_callers(got_hello, {error, FailureReason}, State),
             send(#msg{kind=connection_control, type=closing_connection, data=FailureReason}, State),
             {stop, {shutdown, FailureReason}, State}
     end;
-awaiting_hello(#msg{type=closing_connection, data=Reason}, #state{my_id=MyId} = State) ->
+awaiting_hello(#msg{type=closing_connection, data=Reason}, ?STATE{my_id=MyId} = State) ->
     lager_info(MyId, "Closing while awaiting hello. Reason from peer: ~p", [Reason]),
-    notify_and_remove_callers(hello, {error, Reason}, State),
+    notify_and_remove_callers(got_hello, {error, Reason}, State),
     {stop, {shutdown, Reason}, State};
-awaiting_hello(SomeEvent, #state{my_id=MyId} = State) ->
+awaiting_hello(SomeEvent, ?STATE{my_id=MyId} = State) ->
     lager_info(MyId, "Awaited hello, got '~p'.", [SomeEvent]),
     {stop, unexpected_event, State}.
 
@@ -193,11 +197,11 @@ connected({from_pid, RequestersPid, Msg}, State) ->
     {next_state, connected, NewState};
 connected(#msg{kind=response} = Msg, State) ->
     NewCallers = forward_response_to_pid(Msg, State),
-    {next_state, connected, State#state{callers=NewCallers}};
-connected(#msg{type=closing_connection, data=Reason}, #state{my_id=MyId} = State) ->
+    {next_state, connected, State?STATE{callers=NewCallers}};
+connected(#msg{type=closing_connection, data=Reason}, ?STATE{my_id=MyId} = State) ->
     lager_info(MyId, "Closing connection '~p'.", [Reason]),
     {stop, closing_connection, State};
-connected(SomeEvent, #state{my_id=MyId} = State) ->
+connected(SomeEvent, ?STATE{my_id=MyId} = State) ->
     lager_info(MyId, "Unexpected event '~p'.", [SomeEvent]),
     {stop, unexpected_event, State}.
 
@@ -207,13 +211,13 @@ connected(_SomeEvent, _From, State) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
--spec send_hello(#state{}) -> ok | send_result().
-send_hello(#state{my_id=MyId} = State) ->
+-spec send_hello(?STATE{}) -> ok | send_result().
+send_hello(?STATE{my_id=MyId} = State) ->
     ListeningPort = p2phun_routingtable:server_port(MyId),
     HelloMsg = #hello{id=MyId, server_port=ListeningPort},
     send({hello, HelloMsg}, State).
 
--spec respond_to_peer_request(Request :: #msg{}, #state{}) -> ok | {error, closed | inet:posix()}.
+-spec respond_to_peer_request(Request :: #msg{}, ?STATE{}) -> ok | {error, closed | inet:posix()}.
 respond_to_peer_request(#msg{type=ping}, State) ->
     send(#msg{kind=response, type=ping}, State);
 respond_to_peer_request(#msg{type=peer_list, data={peer_age_above, TimeStamp}}, State) ->
@@ -221,13 +225,13 @@ respond_to_peer_request(#msg{type=peer_list, data={peer_age_above, TimeStamp}}, 
 respond_to_peer_request(#msg{type=find_node, data=Id2Find}, State) ->
     search_node_and_send_result(Id2Find, State).
 
--spec send_peerlist_(TimeStamp :: integer(), State :: #state{}) -> send_result().
-send_peerlist_(TimeStamp, #state{my_id=MyId} = State) ->
+-spec send_peerlist_(TimeStamp :: integer(), State :: ?STATE{}) -> send_result().
+send_peerlist_(TimeStamp, ?STATE{my_id=MyId} = State) ->
     Peers = [Peer#peer{connection_port=none, pid=none} || Peer <- fetch_all_servers_(TimeStamp, ?ROUTINGTABLE(MyId))],
     send(#msg{kind=response, type=peer_list, data=Peers}, State).
 
--spec search_node_and_send_result(NodeId2Find :: id(), #state{}) -> send_result().
-search_node_and_send_result(NodeId2Find, #state{my_id=MyId} = State) ->
+-spec search_node_and_send_result(NodeId2Find :: id(), ?STATE{}) -> send_result().
+search_node_and_send_result(NodeId2Find, ?STATE{my_id=MyId} = State) ->
     % Worst distance that should be acceptable (Should be dynamically defined at some point)
     MaxDistance = p2phun_utils:floor(?KEYSPACE_SIZE / 2),
     Peers = fetch_peers_closest_to_id_(?ROUTINGTABLE(MyId), NodeId2Find, MaxDistance, 10),
@@ -237,28 +241,28 @@ search_node_and_send_result(NodeId2Find, #state{my_id=MyId} = State) ->
     end,
     send(#msg{kind=response, type=find_node, data=SearchResult}, State).
 
--spec forward_request_to_peer(Msg :: #msg{}, RequestersPid :: pid(), #state{}) -> #state{}.
-forward_request_to_peer(#msg{type=peer_list, data=none} = Msg, RequestersPid, #state{my_id=MyId, peer_id=PeerId} = State) ->
+-spec forward_request_to_peer(Msg :: #msg{}, RequestersPid :: pid(), ?STATE{}) -> ?STATE{}.
+forward_request_to_peer(#msg{type=peer_list, data=none} = Msg, RequestersPid, ?STATE{my_id=MyId, peer_id=PeerId} = State) ->
     Msg1 = Msg#msg{data={peer_age_above, fetch_last_fetched_peer_(?ROUTINGTABLE(MyId), PeerId)}},
     forward_request_to_peer(Msg1, RequestersPid, State);
-forward_request_to_peer(#msg{type=Type} = Msg, RequestersPid, #state{callers=PendingRequests} = State) ->
+forward_request_to_peer(#msg{type=Type} = Msg, RequestersPid, ?STATE{callers=PendingRequests} = State) ->
     lager:info("Forwarding request to peer: ~p",[Msg]),
     send(Msg, State),
-    State#state{callers=[{Type, RequestersPid}|PendingRequests]}.
+    State?STATE{callers=[{Type, RequestersPid}|PendingRequests]}.
 
--spec forward_response_to_pid(Msg :: #msg{}, #state{}) -> [{msg_type(), pid()}].
-forward_response_to_pid(#msg{type=peer_list, data=Peers}, #state{my_id=MyId, peer_id=PeerId} = State) ->
+-spec forward_response_to_pid(Msg :: #msg{}, ?STATE{}) -> [{msg_type(), pid()}].
+forward_response_to_pid(#msg{type=peer_list, data=Peers}, ?STATE{my_id=MyId, peer_id=PeerId} = State) ->
     p2phun_routingtable:update_timestamps(MyId, PeerId, Peers), %FIXME no need to send Peers, just find the proper timestamp
     notify_and_remove_callers(peer_list, Peers, State);
 forward_response_to_pid(#msg{type=Type, data=Data}, State) ->
     notify_and_remove_callers(Type, Data, State).
 
--spec send(Msg:: term(), State :: #state{}) -> send_result().
-send(Msg, #state{transport=Transport, sock=Sock}) ->
+-spec send(Msg:: term(), State :: ?STATE{}) -> send_result().
+send(Msg, ?STATE{transport=Transport, sock=Sock}) ->
     Transport:send(Sock, term_to_binary(Msg)).
 
--spec notify_and_remove_callers(ResponseType :: msg_type(), Result :: term(), #state{}) -> [{msg_type(), pid()}].
-notify_and_remove_callers(ResponseType, Result, #state{callers=Callers}) ->
+-spec notify_and_remove_callers(ResponseType :: msg_type(), Result :: term(), ?STATE{}) -> [{msg_type(), pid()}].
+notify_and_remove_callers(ResponseType, Result, ?STATE{callers=Callers}) ->
     lists:filter(
         fun({RequestType, CallerPid}) ->
             case ResponseType =:= RequestType of

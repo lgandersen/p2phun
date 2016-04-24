@@ -18,8 +18,6 @@
 -record(state, {my_id, cache, id2find, caller_pid, peer_pid}).
 -record(lookup, {type, key2find, caller_pid}).
 
--type result() :: {find_node, Id2Find :: id(), CallerPid :: pid()}.
-
 %%%===================================================================
 %%% API functions
 %%%===================================================================
@@ -47,17 +45,21 @@ handle_cast(#lookup{type=node, key2find=NodeId, caller_pid=CallerPid}, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({ok, got_hello}, #state{peer_pid=PeerPid, id2find=NodeId, caller_pid=CallerPid} = State) ->
-    % TODO check if this peer have the right node id and return the result
+handle_info({got_hello, NodeId}, #state{peer_pid=PeerPid, id2find=NodeId, caller_pid=CallerPid} = State) ->
+    CallerPid ! #search_findings{searcher=self(), type=node_found, data=PeerPid},
+    State#state{id2find=undefined, caller_pid=undefined, peer_pid=undefined};
+handle_info({got_hello, PeerId}, #state{my_id=MyId, peer_pid=PeerPid, id2find=NodeId, caller_pid=CallerPid} = State) ->
     NewState = case p2phun_peer:find_peer(PeerPid, NodeId) of
         {peers_closer, Peers} ->
             CallerPid ! #search_findings{searcher=self(), type=nodes_closer, data=Peers},
-            p2phun_peer:close_connection(PeerPid),
             prepare_next_peer(State);
-        {found_node, Node} ->
-            CallerPid ! #search_findings{searcher=self(), type=node_found, data={Node, PeerPid}},
-            State
+        {found_node, #peer{address=Address, server_port=Port}} when Port =:= none ->
+            prepare_next_peer(State);
+        {found_node, #peer{address=Address, server_port=Port}} ->
+            NewPeerPid = p2phun_peer_pool:connect_and_notify_when_connected(MyId, Address, Port),
+            State#state{peer_pid=NewPeerPid}
     end,
+    p2phun_peer:close_connection(PeerPid),
     {noreply, NewState};
 handle_info(_Info, State) ->
     {noreply, State}.

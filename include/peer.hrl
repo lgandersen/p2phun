@@ -34,7 +34,7 @@
     id :: p2phun_types:id(),
     connection_port=none :: none | inet:port_number(),
     address :: inet:ip_address() | inet:hostname(),
-    server_port,
+    server_port=none,
     pid=none :: none | pid(), % pid of process that maintains the connection with this peer
     time_added=0 :: integer(),
     processed=false :: true | false,
@@ -50,6 +50,10 @@
     }).
 
 -type peer() :: #peer{}.
+
+-record(swarm_state, {my_id, cache, id2find, searchers, nsearchers, idle_searchers, caller_pid}).
+-record(peer_state, {my_id, peer_id, we_connected, send, address, port, transport, sock, callers=[]}).
+
 
 % Test-related:
 -define(NODE(Id), #node_config{id=Id, address={?LOCALHOST, 5000 + Id}}).

@@ -11,8 +11,8 @@
     add_peers_not_in_cache/2,
     next_peer/1,
     nsearchers/2,
-    my_state/1,
-    cache/1]).
+    my_state/1
+    ]).
 
 %% gen_server callbacks
 -export([
@@ -33,9 +33,9 @@
     fetch_peers_closest_to_id_/4
     ]).
 
--record(state, {my_id, cache, id2find, searchers, nsearchers, idle_searchers, caller_pid}).
+-define(STATE, #swarm_state).
 
--type response() :: no_node_found | {node_found, {NodeId :: id(), PeerPid :: pid()}}.
+-type response() :: no_node_found | {node_found, PeerPid :: pid()}.
 
 %%%===================================================================
 %%% API functions
@@ -63,28 +63,24 @@ next_peer(MyId) ->
 nsearchers(MyId, NSearchers) ->
     gen_server:call(?MODULE_ID(MyId), {nsearchers, NSearchers}).
 
--spec my_state(id()) -> #state{}.
+-spec my_state(id()) -> ?STATE{}.
 my_state(MyId) ->
     gen_server:call(?MODULE_ID(MyId), get_state).
-
--spec cache(id()) -> table().
-cache(MyId) ->
-    gen_server:call(?MODULE_ID(MyId), get_cache).
 
 %%%===================================================================
 %%% gen_server callbacks
 %%%===================================================================
 init([MyId, NSearchers]) ->
-    State = #state{my_id=MyId, cache=ets:new(result_cache, [set, {keypos, 2}])},
+    State = ?STATE{my_id=MyId, cache=ets:new(result_cache, [set, {keypos, 2}])},
     Searchers = create_searchers(NSearchers, State),
-    {ok, State#state{
+    {ok, State?STATE{
            searchers=Searchers,
            nsearchers=NSearchers,
            idle_searchers=[],
            id2find=MyId % Makes it easier to test, will be reset after first search.
           }}.
 
-handle_call(next_peer, _From, #state{id2find=Id2Find, cache=Cache} = State) ->
+handle_call(next_peer, _From, ?STATE{id2find=Id2Find, cache=Cache} = State) ->
     case fetch_peers_closest_to_id_and_not_processed(
         Cache, Id2Find, p2phun_utils:floor(?KEYSPACE_SIZE / 2), 1) of
         [Peer] ->
@@ -97,7 +93,7 @@ handle_call(next_peer, _From, #state{id2find=Id2Find, cache=Cache} = State) ->
     end;
 handle_call({nsearchers, NSearchsNew}, _From, State) ->
     {reply, ok, adjust_nsearchers(NSearchsNew, State)};
-handle_call(get_cache, _From, #state{cache=Cache} = State) ->
+handle_call(get_cache, _From, ?STATE{cache=Cache} = State) ->
     {reply, Cache, State};
 handle_call(get_state, _From, State) ->
     {reply, State, State};
@@ -107,9 +103,10 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({add_peers_not_in_cache, Peers}, State) ->
     {noreply, add_peers_not_in_cache_(Peers, State)};
-handle_cast({find_node, Id2Find, CallersPid}, #state{my_id=MyId, searchers=Searchers, cache=Cache} = State) ->
-% TODO just send the result in case we already have it in our routingtable
+handle_cast({find_node, Id2Find, CallersPid}, ?STATE{my_id=MyId, searchers=Searchers, cache=Cache} = State) ->
+    % TODO just send the result in case we already have it in our routingtable
     ClosestPeers = fetch_peers_closest_to_id_(
+        % It is assumed that any peers found in routingtable are peers we are already connected to.
         ?ROUTINGTABLE(MyId), Id2Find, p2phun_utils:floor(?KEYSPACE_SIZE / 2), 15),
     case lists:keyfind(Id2Find, 2, ClosestPeers) of
         false ->
@@ -119,7 +116,7 @@ handle_cast({find_node, Id2Find, CallersPid}, #state{my_id=MyId, searchers=Searc
                 Searchers);
         Peer -> Peer
     end,
-    {noreply, State#state{caller_pid=CallersPid}};
+    {noreply, State?STATE{caller_pid=CallersPid}};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -138,49 +135,52 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
--spec handle_findings(#search_findings{}, #state{}) -> #state{}.
-handle_findings(_Findings, #state{caller_pid=undefined, id2find=undefined} = State) ->
-% This should imply that a search is not undergoing. However, a searcher might have waited for a response before discovering that the cache is empty. 
-% Thus, ignore its finding.
+-spec handle_findings(#search_findings{}, ?STATE{}) -> ?STATE{}.
+handle_findings(
+  _Findings, ?STATE{caller_pid=undefined, id2find=undefined} = State) ->
+  % This should imply that a search is not undergoing. However, a searcher might have waited for a response before discovering that the cache is empty.
+  % Thus, ignore its finding.
     State;
-handle_findings(#search_findings{type=nodes_closer, data=Peers}, State) ->
+handle_findings(
+  #search_findings{type=nodes_closer, data=Peers}, State) ->
     add_peers_not_in_cache_(Peers, State);
 handle_findings(
-  #search_findings{searcher=SearchersPid, type=node_found, data=NodeInfo},
-  #state{cache=Cache, caller_pid=CallersPid, idle_searchers=IdleSearchers} = State) ->
+  #search_findings{searcher=SearchersPid, type=node_found, data=PeerPid},
+  ?STATE{cache=Cache, caller_pid=CallersPid, idle_searchers=IdleSearchers} = State) ->
     true = ets:delete_all_objects(Cache),
-    CallersPid ! {result, {node_found, NodeInfo}},
-    State#state{idle_searchers=[SearchersPid|IdleSearchers], caller_pid=undefined, id2find=undefined};
+    CallersPid ! {result, {node_found, PeerPid}},
+    State?STATE{idle_searchers=[SearchersPid|IdleSearchers], caller_pid=undefined, id2find=undefined};
 handle_findings(
   #search_findings{type=no_more_peers_in_cache, searcher=SearchersPid},
-  #state{cache=Cache, nsearchers=NSearchers, caller_pid=CallersPid, idle_searchers=IdleSearchers} = State) when length(IdleSearchers) =:= NSearchers - 1 ->
+  ?STATE{cache=Cache, nsearchers=NSearchers, caller_pid=CallersPid, idle_searchers=IdleSearchers} = State)
+  when length(IdleSearchers) =:= NSearchers - 1 ->
     true = ets:delete_all_objects(Cache),
     CallersPid ! {result, no_node_found}, % we could also fetch the closest nodes before flushing cache and send it to the caller
-    State#state{idle_searchers=[SearchersPid|IdleSearchers], caller_pid=undefined, id2find=undefined};
+    State?STATE{idle_searchers=[SearchersPid|IdleSearchers], caller_pid=undefined, id2find=undefined};
 handle_findings(
   #search_findings{type=no_more_peers_in_cache, searcher=SearchersPid},
-  #state{nsearchers=NSearchers, idle_searchers=IdleSearchers} = State) when length(IdleSearchers) < NSearchers - 1 ->
-    State#state{idle_searchers=[SearchersPid|IdleSearchers]}.
+  ?STATE{nsearchers=NSearchers, idle_searchers=IdleSearchers} = State) when length(IdleSearchers) < NSearchers - 1 ->
+    State?STATE{idle_searchers=[SearchersPid|IdleSearchers]}.
 
--spec add_peers_not_in_cache_([#peer{}], #state{}) -> #state{}.
-add_peers_not_in_cache_(Peers, #state{cache=Cache} = State) ->
+-spec add_peers_not_in_cache_([#peer{}], ?STATE{}) -> ?STATE{}.
+add_peers_not_in_cache_(Peers, ?STATE{cache=Cache} = State) ->
     NewPeers = peers_not_in_table_(Cache, Peers),
     sudo_add_peers_(Cache, NewPeers),
     State.
 
--spec adjust_nsearchers(pos_integer(), #state{}) -> #state{}.
-adjust_nsearchers(NSearchsNew, #state{nsearchers=NSearchsOld, searchers=Searchers} = State) when NSearchsNew < NSearchsOld ->
+-spec adjust_nsearchers(pos_integer(), ?STATE{}) -> ?STATE{}.
+adjust_nsearchers(NSearchsNew, ?STATE{nsearchers=NSearchsOld, searchers=Searchers} = State) when NSearchsNew < NSearchsOld ->
     Searchers2Remove = lists:nthtail(NSearchsNew, Searchers),
     lists:foreach(fun(Pid) -> unlink(Pid), exit(Pid, shutdown) end, Searchers2Remove),
-    State#state{nsearchers=NSearchsNew, searchers=lists:sublist(Searchers, NSearchsNew)};
-adjust_nsearchers(NSearchsNew, #state{nsearchers=NSearchsOld, searchers=Searchers} = State) when NSearchsNew > NSearchsOld ->
+    State?STATE{nsearchers=NSearchsNew, searchers=lists:sublist(Searchers, NSearchsNew)};
+adjust_nsearchers(NSearchsNew, ?STATE{nsearchers=NSearchsOld, searchers=Searchers} = State) when NSearchsNew > NSearchsOld ->
     NewSearchers = create_searchers(NSearchsNew - NSearchsOld, State),
-    State#state{nsearchers=NSearchsNew, searchers=lists:append(Searchers, NewSearchers)};
-adjust_nsearchers(NSearchsNew, #state{nsearchers=NSearchsOld} = State) when NSearchsNew =:= NSearchsOld ->
+    State?STATE{nsearchers=NSearchsNew, searchers=lists:append(Searchers, NewSearchers)};
+adjust_nsearchers(NSearchsNew, ?STATE{nsearchers=NSearchsOld} = State) when NSearchsNew =:= NSearchsOld ->
     State.
 
--spec create_searchers(pos_integer(), #state{}) -> [pid()].
-create_searchers(Searchers2Create, #state{cache=Cache, my_id=MyId}) ->
+-spec create_searchers(pos_integer(), ?STATE{}) -> [pid()].
+create_searchers(Searchers2Create, ?STATE{cache=Cache, my_id=MyId}) ->
     lists:map(
         fun(_N) -> {ok, Pid} = p2phun_searcher:start_link(MyId, Cache), Pid end,
         lists:seq(1, Searchers2Create)

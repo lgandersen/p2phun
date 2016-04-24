@@ -11,7 +11,6 @@
      connect/2
     ]).
 
--record(state, {my_id, cache, id2find, searchers, nsearchers, responses, caller_pid}).
 
 start_swarm(Id, NSearchers) ->
     {ok, Pid} = p2phun_swarm:start_link(Id, NSearchers),
@@ -39,7 +38,7 @@ next_peer_test() ->
 adjust_nsearchers_test() ->
     NodePids = create_nodes([Id0] = [0], []),
     CheckNSearchers = fun(CheckVal) ->
-        #state{nsearchers=NSearchers} = p2phun_swarm:my_state(Id0),
+        #swarm_state{nsearchers=NSearchers} = p2phun_swarm:my_state(Id0),
         ?assertEqual(NSearchers, CheckVal)
     end,
     CheckNSearchers(3),
