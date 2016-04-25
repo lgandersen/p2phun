@@ -27,8 +27,8 @@ start_link(MyId, Cache) ->
     gen_server:start_link(?MODULE, [MyId, Cache], []).
 
 -spec find(pid(), {find_node, id()}) -> ok.
-find(SearcherPid, {find_node, NodeId}) ->
-    gen_server:cast(SearcherPid, #lookup{type=node, key2find=NodeId, caller_pid=self()}).
+find(SearcherPid, {find_node, NodeId2Find}) ->
+    gen_server:cast(SearcherPid, #lookup{type=node, key2find=NodeId2Find, caller_pid=self()}).
 
 %%%===================================================================
 %%% gen_server callbacks
@@ -39,8 +39,8 @@ init([MyId, Cache]) -> {ok, #state{my_id=MyId, cache=Cache}}.
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
-handle_cast(#lookup{type=node, key2find=NodeId, caller_pid=CallerPid}, State) ->
-    NewState = prepare_next_peer(State#state{caller_pid=CallerPid, id2find=NodeId}),
+handle_cast(#lookup{type=node, key2find=NodeId2Find, caller_pid=CallerPid}, State) ->
+    NewState = prepare_next_peer(State#state{caller_pid=CallerPid, id2find=NodeId2Find}),
     {noreply, NewState};
 handle_cast(_Msg, State) ->
     {noreply, State}.

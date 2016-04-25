@@ -22,5 +22,7 @@ find_node_in_cache_test() ->
     _NodePids = create_nodes([Id0, Id1], []),
     #swarm_state{cache=Cache, searchers=[SearcherPid|_Rest]} = p2phun_swarm:my_state(Id0),
     p2phun_swarm:add_peers_not_in_cache(0, [?PEER(Id1)]),
-    ?assertEqual(ok, p2phun_searcher:find(SearcherPid, {find_node, Id1})).
-    %TODO this should be extended: receive the message from the searcher which will be sent back
+    ?assertEqual(ok, p2phun_searcher:find(SearcherPid, {find_node, Id1})),
+    receive
+        Msg -> ?assertMatch(#search_findings{searcher=Pid, type=node_found, data=PeerPid}, Msg)
+    end.

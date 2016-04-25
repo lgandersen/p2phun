@@ -104,7 +104,6 @@ handle_call(_Request, _From, State) ->
 handle_cast({add_peers_not_in_cache, Peers}, State) ->
     {noreply, add_peers_not_in_cache_(Peers, State)};
 handle_cast({find_node, Id2Find, CallersPid}, ?STATE{my_id=MyId, searchers=Searchers, cache=Cache} = State) ->
-    % TODO just send the result in case we already have it in our routingtable
     ClosestPeers = fetch_peers_closest_to_id_(
         % It is assumed that any peers found in routingtable are peers we are already connected to.
         ?ROUTINGTABLE(MyId), Id2Find, p2phun_utils:floor(?KEYSPACE_SIZE / 2), 15),
@@ -114,7 +113,8 @@ handle_cast({find_node, Id2Find, CallersPid}, ?STATE{my_id=MyId, searchers=Searc
             lists:foreach(
                 fun(SearcherPid) -> p2phun_searcher:find(SearcherPid, {find_node, Id2Find}) end,
                 Searchers);
-        Peer -> Peer
+        #peer{id=Id2Find, pid=PeerPid} ->
+            CallersPid ! {result, {node_found, PeerPid}}
     end,
     {noreply, State?STATE{caller_pid=CallersPid}};
 handle_cast(_Msg, State) ->
