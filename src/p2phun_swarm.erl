@@ -86,6 +86,7 @@ handle_call(next_peer, _From, ?STATE{id2find=Id2Find, cache=Cache} = State) ->
         [Peer] ->
             % Because of this update we need to do this at swarm proc to avoid two searchers
             % picking the same peer
+            lager:info("HER ER EN PEER FETCHED: ~p", [Peer#peer.pid]),
             update_peer_(Cache, Peer#peer.id, [{processed, true}]),
             {reply, Peer, State};
         [] ->
@@ -105,7 +106,6 @@ handle_cast({add_peers_not_in_cache, Peers}, State) ->
     {noreply, add_peers_not_in_cache_(Peers, State)};
 handle_cast({find_node, Id2Find, CallersPid}, ?STATE{my_id=MyId, searchers=Searchers, cache=Cache} = State) ->
     ClosestPeers = fetch_peers_closest_to_id_(
-        % It is assumed that any peers found in routingtable are peers we are already connected to.
         ?ROUTINGTABLE(MyId), Id2Find, p2phun_utils:floor(?KEYSPACE_SIZE / 2), 15),
     case lists:keyfind(Id2Find, 2, ClosestPeers) of
         false ->

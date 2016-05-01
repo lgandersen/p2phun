@@ -55,15 +55,15 @@ fetch_last_fetched_peer_(Table, PeerId) ->
 -spec fetch_peers_closest_to_id_and_not_processed(Table :: table(), Id :: id(), MaxDist :: integer(), MaxVals :: non_neg_integer()) -> [#peer{}].
 fetch_peers_closest_to_id_and_not_processed(Table, Id, MaxDist, MaxVals) ->
     MatchSpec = ets:fun2ms(
-        fun(#peer{id=PeerId, address=Address, server_port=Port, processed=Processed} = _Peer) when (PeerId bxor Id < MaxDist), Processed =:= false ->
-            #peer{id=PeerId, address=Address, server_port=Port} end),
+        fun(#peer{id=PeerId, address=Address, server_port=Port, processed=Processed} = Peer) when (PeerId bxor Id < MaxDist), Processed =:= false ->
+            Peer end),
     fetch_peers_closest_to_id_1(Table, Id, MaxVals, MatchSpec).
 
 -spec fetch_peers_closest_to_id_(Table :: table(), Id :: id(), MaxDist :: integer(), MaxVals :: non_neg_integer()) -> [#peer{}].
 fetch_peers_closest_to_id_(Table, Id, MaxDist, MaxVals) ->
     MatchSpec = ets:fun2ms(
-        fun(#peer{id=PeerId, address=Address, server_port=Port} = _Peer) when (PeerId bxor Id < MaxDist) ->
-            #peer{id=PeerId, address=Address, server_port=Port} end),
+        fun(#peer{id=PeerId, address=Address, server_port=Port} = Peer) when (PeerId bxor Id < MaxDist) ->
+            Peer end),
     fetch_peers_closest_to_id_1(Table, Id, MaxVals, MatchSpec).
 
 -spec fetch_peers_closest_to_id_1(Table :: table(), Id :: id(), MaxVals :: non_neg_integer(), MatchSpec :: ets:match_spec()) -> [#peer{}].

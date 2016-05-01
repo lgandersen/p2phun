@@ -9,7 +9,8 @@
     close_connection/1,
     find_peer/2,
     request_peerlist/1,
-    ping/1
+    ping/1,
+    my_state/1
     ]).
 
 %% gen_fsm exports
@@ -118,7 +119,10 @@ handle_event(_Event, StateName, State) ->
     {next_state, StateName, State}.
 
 handle_sync_event(get_state, _From, StateName, State) ->
-    {reply, State, StateName, State}.
+    {reply, State, StateName, State};
+handle_sync_event(Msg, _From, StateName, State) ->
+    lager:info("Msg not understood: ~p", [Msg]),
+    {reply, ok, StateName, State}.
 
 handle_info({tcp, Sock, RawData}, StateName, State) ->
     NewState = case binary_to_term(RawData) of
@@ -141,7 +145,6 @@ handle_info(_Info, _StName, StData) ->
 
 terminate(normal, _StateName, ?STATE{my_id=MyId, peer_id=PeerId, transport=Transport, sock=Sock}) ->
     Transport:close(Sock),
-    lager_info(MyId, "MYID ~p table.", [MyId]),
     p2phun_routingtable:delete_peers(MyId, [PeerId]), %FIXME should it delete or just update it as not-connected.
     lager_info(MyId, "Shutting me down!");
 terminate({shutdown, already_in_table}, awaiting_hello, ?STATE{my_id=MyId, transport=Transport, sock=Sock}) ->

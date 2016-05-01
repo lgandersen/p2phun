@@ -45,21 +45,24 @@ handle_cast(#lookup{type=node, key2find=NodeId2Find, caller_pid=CallerPid}, Stat
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({got_hello, NodeId}, #state{peer_pid=PeerPid, id2find=NodeId, caller_pid=CallerPid} = State) ->
+handle_info({got_hello, NodeId2Find}, #state{peer_pid=PeerPid, id2find=NodeId2Find, caller_pid=CallerPid} = State) ->
     CallerPid ! #search_findings{searcher=self(), type=node_found, data=PeerPid},
-    State#state{id2find=undefined, caller_pid=undefined, peer_pid=undefined};
+    {noreply, State#state{id2find=undefined, caller_pid=undefined, peer_pid=undefined}};
 handle_info({got_hello, PeerId}, #state{my_id=MyId, peer_pid=PeerPid, id2find=NodeId, caller_pid=CallerPid} = State) ->
     NewState = case p2phun_peer:find_peer(PeerPid, NodeId) of
-        {peers_closer, Peers} ->
+        {peers_closest, Peers} ->
             CallerPid ! #search_findings{searcher=self(), type=nodes_closer, data=Peers},
             prepare_next_peer(State);
         {found_node, #peer{address=Address, server_port=Port}} when Port =:= none ->
             prepare_next_peer(State);
         {found_node, #peer{address=Address, server_port=Port}} ->
-            NewPeerPid = p2phun_peer_pool:connect_and_notify_when_connected(MyId, Address, Port),
-            State#state{peer_pid=NewPeerPid}
+            {ok, NewPeerPid} = p2phun_peer_pool:connect_and_notify_when_connected(MyId, Address, Port),
+            State#state{peer_pid=NewPeerPid};
+        Msg ->
+            lager:info("Repsonse not understood: ~p", [Msg]),
+            State
     end,
-    p2phun_peer:close_connection(PeerPid),
+    p2phun_peer:close_connection(PeerPid), % Should we close the connection here?
     {noreply, NewState};
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -78,9 +81,12 @@ prepare_next_peer(#state{my_id=MyId, caller_pid=CallerPid} = State) ->
         no_peer_found ->
             CallerPid ! #search_findings{searcher=self(), type=no_more_peers_in_cache},
             State#state{peer_pid=undefined, id2find=undefined, caller_pid=undefined};
-        Peer ->
-            #peer{address=Address, server_port=Port} = Peer,
-            PeerPid = p2phun_peer_pool:connect_and_notify_when_connected(MyId, Address, Port),
+        #peer{address=Address, server_port=Port, pid=none} ->
+            {ok, PeerPid} = p2phun_peer_pool:connect_and_notify_when_connected(MyId, Address, Port),
+            State#state{peer_pid=PeerPid};
+        #peer{pid=PeerPid} ->
+            #peer_state{peer_id=PeerId} = p2phun_peer:my_state(PeerPid),
+            self() ! {got_hello, PeerId},
             State#state{peer_pid=PeerPid}
     end,
     NewState.
