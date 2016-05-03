@@ -29,7 +29,7 @@ peer_process_name(MyId, PeerId) ->
 lager_info(Id, Msg) ->
     lager_info(Id, Msg, []).
 lager_info(Id, Msg, Param) ->
-    lager:info("~p: " ++ Msg, [b64(Id)] ++ Param).
+    lager:info("~p: " ++ Msg, [Id] ++ Param).
 
 % using big endian
 b64(Id_Int) when is_integer(Id_Int) ->

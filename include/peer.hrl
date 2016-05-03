@@ -10,8 +10,9 @@
 -type table() :: ets:tid() | atom().
 -type location() :: {nonempty_string(), inet:port_number()}. %should be inet:address()
 
--type msg_type() :: hello | closing_connection| ping | peer_list | find_node.
+-type msg_type() :: got_hello | closing_connection| ping | peer_list | find_node.
 -type msg_kind() :: request | response | connection_control.
+
 
 -record(msg, {
     kind :: msg_kind(),
@@ -43,16 +44,26 @@
     last_peerlist_request=0 :: integer()
     }).
 
+-type peer() :: #peer{}.
+
 -record(search_findings, {
     searcher :: pid(),
     type :: nodes_closer | node_found | no_more_peers_in_cache,
     data=no_data :: no_data | [#peer{}] | {p2phun_types:id(), pid()}
     }).
 
--type peer() :: #peer{}.
 
 -record(swarm_state, {my_id, cache, id2find, searchers, nsearchers, idle_searchers, caller_pid}).
--record(peer_state, {my_id, peer_id, we_connected, send, address, port, transport, sock, callers=[]}).
+
+-record(peer_state, {
+          my_id :: id(),
+          peer_id :: id(),
+          we_connected :: true | false,
+          address :: inet:ip_address() | inet:hostname(),
+          port :: inet:port_number(),
+          transport :: gen_tcp | ssl,
+          sock :: inet:socket(),
+          callers=[] :: [pid()]}).
 
 
 % Test-related:

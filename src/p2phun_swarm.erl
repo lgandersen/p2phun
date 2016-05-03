@@ -48,10 +48,10 @@ start_link(MyId, NSearchers) ->
 find_node(MyId, Id2Find) ->
     gen_server:cast(?MODULE_ID(MyId), {find_node, Id2Find, self()}),
     receive
-        {find_node_responses, Responses} -> Responses
+        {result, Result} -> Result
     end.
 
--spec add_peers_not_in_cache(MyId :: id(), Peers :: [#peer{}]) -> ok.
+-spec add_peers_not_in_cache(MyId :: id(), Peers :: [peer()]) -> ok.
 add_peers_not_in_cache(MyId, Peers) -> % Only used in testing atm.
     gen_server:cast(?MODULE_ID(MyId), {add_peers_not_in_cache, Peers}).
 
@@ -86,7 +86,6 @@ handle_call(next_peer, _From, ?STATE{id2find=Id2Find, cache=Cache} = State) ->
         [Peer] ->
             % Because of this update we need to do this at swarm proc to avoid two searchers
             % picking the same peer
-            lager:info("HER ER EN PEER FETCHED: ~p", [Peer#peer.pid]),
             update_peer_(Cache, Peer#peer.id, [{processed, true}]),
             {reply, Peer, State};
         [] ->
@@ -143,7 +142,8 @@ handle_findings(
     State;
 handle_findings(
   #search_findings{type=nodes_closer, data=Peers}, State) ->
-    add_peers_not_in_cache_(Peers, State);
+    FilteredPeers = remove_me_from_peerlist(Peers, State),
+    add_peers_not_in_cache_(FilteredPeers, State);
 handle_findings(
   #search_findings{searcher=SearchersPid, type=node_found, data=PeerPid},
   ?STATE{cache=Cache, caller_pid=CallersPid, idle_searchers=IdleSearchers} = State) ->
@@ -185,3 +185,6 @@ create_searchers(Searchers2Create, ?STATE{cache=Cache, my_id=MyId}) ->
         fun(_N) -> {ok, Pid} = p2phun_searcher:start_link(MyId, Cache), Pid end,
         lists:seq(1, Searchers2Create)
      ).
+
+remove_me_from_peerlist(Peers, ?STATE{my_id=MyId}) ->
+    lists:filter(fun(#peer{id=PeerId}) -> PeerId =/= MyId end, Peers).

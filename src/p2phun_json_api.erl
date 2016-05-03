@@ -69,8 +69,8 @@ parse_json(#{
         no_node_found ->
             lager:info("WHILE TESTING: fandt ikke en skiiiid!"),
             no_node_found;
-        {node_found, {NodeId, PeerPid}} ->
-            lager:info("WHILE TESTING: ~p ~p", [NodeId, PeerPid])
+        {node_found, PeerPid} ->
+            lager:info("WHILE TESTING: ~p", [PeerPid])
     end;
     %send(Response, State);
 parse_json(EJSON, _State) ->

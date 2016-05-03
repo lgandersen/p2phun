@@ -48,9 +48,18 @@ adjust_nsearchers_test() ->
     ok = p2phun_swarm:nsearchers(Id0, 5), CheckNSearchers(5),
     shutdown_nodes(NodePids).
 
-% The final test to make! :-)
-%node_lookup_test() ->
-%    _NodePids = create_nodes([Id0, Id2, Id3, Id4, Id1] = [0, 2, 3, 4, 1], []),
-%    connection(Id0, Id2), connection(Id2, Id3),
-%    connection(Id3, Id4), connection(Id4, Id1),
-%    Lol = p2phun_swarm:find_node(0, 1),
+successful_node_lookup_test() ->
+    NodePids = create_nodes([Id50, Id0, Id1, Id2, Id3, Id4] = [50, 0, 1, 2, 3, 4], []),
+    connection(Id0, Id1), connection(Id1, Id2), connection(Id2, Id3),
+    connection(Id3, Id4), connection(Id4, Id50),
+    Result = p2phun_swarm:find_node(Id50, Id0),
+    ?assertMatch({node_found, PeerPid}, Result),
+    shutdown_nodes(NodePids).
+
+failed_node_lookup_test() ->
+    NodePids = create_nodes([Id50, Id0, Id1, Id2, Id3, Id4] = [50, 0, 1, 2, 3, 4], []),
+    connection(Id1, Id2), connection(Id2, Id3),
+    connection(Id3, Id4), connection(Id4, Id50),
+    Result = p2phun_swarm:find_node(Id50, Id0),
+    ?assertMatch(no_node_found, Result),
+    shutdown_nodes(NodePids).
