@@ -9,7 +9,7 @@ __pycache__
 console.log
 *.beam
 *.vim
-p2phun_test.config
+dev.config
 frege
 goedel
 nodes.pickle

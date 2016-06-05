@@ -13,6 +13,19 @@
 -type msg_type() :: got_hello | closing_connection| ping | peer_list | find_node.
 -type msg_kind() :: request | response | connection_control.
 
+-type routingtable_cfg() :: #{
+       space_size => non_neg_integer(),
+       bigbin_spacesize => non_neg_integer(),
+       bigbin_nodesize => non_neg_integer(),
+       number_of_smallbins => non_neg_integer(),
+       smallbin_nodesize => non_neg_integer()
+       }.
+
+-type node_config() :: #{
+       id => non_neg_integer(),
+       port => inet:port_number(),
+       routingtable_cfg => routingtable_cfg()
+       }.
 
 -record(msg, {
     kind :: msg_kind(),

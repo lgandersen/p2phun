@@ -64,8 +64,7 @@ request_peerlist(PeerPid) ->
     gen_fsm:send_event(PeerPid, {from_pid, self(), #msg{kind=request, type=peer_list}}),
     receive
       {peer_list, Peers} ->
-        lager:info("Received peerlist of peers: ~p", [Peers]), Peers;
-       Other -> lager:info("Received msg not understood, should be a peer_list: ~p", [Other]), error
+        lager:info("Received peerlist of peers: ~p", [Peers]), Peers
     end.
 
 -spec find_peer(PeerPid::pid(), Id2Find::id()) -> search_result().

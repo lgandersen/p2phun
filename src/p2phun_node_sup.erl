@@ -5,36 +5,35 @@
 -include("peer.hrl").
 
 %% API
--export([start_link/2, start_link_no_manager/2]).
+-export([create_node/1, create_node_no_manager/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
-
-%% Helper macro for declaring children of supervisor
 
 %% ===================================================================
 %% API functions
 %% ===================================================================
 
-start_link(#node_config{id=Id} = Node, RoutingTableSpec) ->
-    supervisor:start_link({local, ?MODULE_ID(Id)}, ?MODULE, [Node, RoutingTableSpec]).
+-spec create_node(node_config()) -> {ok, pid()}.
+create_node(#{id:=Id} = NodeCfg) ->
+    supervisor:start_link({local, ?MODULE_ID(Id)}, ?MODULE, [NodeCfg]).
 
-start_link_no_manager(#node_config{id=Id} = Node, RoutingTableSpec) ->
-    supervisor:start_link({local, ?MODULE_ID(Id)}, ?MODULE, [Node, RoutingTableSpec, no_manager]).
+create_node_no_manager(#{id:=Id} = NodeCfg) ->
+    supervisor:start_link({local, ?MODULE_ID(Id)}, ?MODULE, [no_manager, NodeCfg]).
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
 
-init([Node, RoutingTableSpec, no_manager]) ->
-    {ok, {{rest_for_one, 5, 10}, mandatory_child_specs(Node, RoutingTableSpec)}};
-init([Node, RoutingTableSpec]) ->
-    {ok, {{rest_for_one, 5, 10}, mandatory_child_specs(Node, RoutingTableSpec) ++ manager_child_spec(Node)}}.
+init([no_manager, NodeCfg]) ->
+    {ok, {{rest_for_one, 5, 10}, mandatory_child_specs(NodeCfg)}};
+init([NodeCfg]) ->
+    {ok, {{rest_for_one, 5, 10}, mandatory_child_specs(NodeCfg) ++ manager_child_spec(NodeCfg)}}.
 
-mandatory_child_specs(#node_config{id=Id, address={_Ip, Port}} = _Node, RoutingTableSpec) ->
+mandatory_child_specs(#{id:=Id, port:=Port, routingtable_cfg:=RoutingTableCfg}) ->
         [#{% peertable
             id => {peertable, Id},
-            start => {p2phun_routingtable, start_link, [Id, RoutingTableSpec, Port]},
+            start => {p2phun_routingtable, start_link, [Id, RoutingTableCfg, Port]},
             restart => permanent,
             shutdown => 2000,
             type => worker
@@ -57,7 +56,7 @@ mandatory_child_specs(#node_config{id=Id, address={_Ip, Port}} = _Node, RoutingT
         }
         ].
 
-manager_child_spec(#node_config{id=Id} = _Node) ->
+manager_child_spec(#{id:=Id} = _NodeCfg) ->
     [#{ % peer connections manager
         id => {p2phun_connections_manager, Id},
         start => {p2phun_connections_manager, start_link, [Id]},

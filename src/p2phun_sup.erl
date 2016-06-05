@@ -16,33 +16,12 @@
 %% ===================================================================
 %% API functions
 %% ===================================================================
-
-start_link({Nodes, JsonApiConf, RoutingTableSpec}) ->
-    supervisor:start_link({local, ?MODULE}, ?MODULE, [{Nodes, RoutingTableSpec, JsonApiConf}]).
+start_link(JsonAPIPort) ->
+    supervisor:start_link({local, ?MODULE}, ?MODULE, [JsonAPIPort]).
 
 %% ===================================================================
 %% Supervisor callbacks
 %% ===================================================================
-
-init([{Nodes, RoutingTableSpec, {_JsonAPIAddress, JsonAPIPort}}]) ->
-     JsonApi =
-        #{
-            id => p2phun_json_api,
-            start => {ranch, start_listener, [json_api_listener, 1, ranch_tcp, [{port, JsonAPIPort}], p2phun_json_api, []]}, %Evt. fix binary, {packet, 0}
-            restart => permanent,
-            shutdown => 2000,
-            type => supervisor
-        },
-    RanchSupSpec = {ranch_sup, {ranch_sup, start_link, []},
-        permanent, 5000, supervisor, [ranch_sup]},
-    NodeSupervisors = lists:map(
-        fun(#node_config{id=Id} = Node) ->
-            #{id => {p2phun_node_supervisor, Id},
-              start => {p2phun_node_sup, start_link, [Node, RoutingTableSpec]},
-              restart => permanent,
-              shutdown => 5000,
-              type => supervisor}
-        end,
-        Nodes
-        ),
-    {ok, {{one_for_one, 5, 10}, [JsonApi, RanchSupSpec | NodeSupervisors]}}.
+init([JsonAPIPort]) ->
+    JsonApi = ranch:child_spec(json_api_listener, 1, ranch_tcp, [{port, JsonAPIPort}], p2phun_json_api, []),
+    {ok, {{one_for_one, 5, 10}, [JsonApi]}}.
