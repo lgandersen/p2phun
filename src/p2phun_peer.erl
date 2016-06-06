@@ -172,7 +172,7 @@ awaiting_hello(
     Peer = #peer{id=PeerId, address=Address, connection_port=Port, server_port=ListeningPort, pid=self(), time_added=erlang:system_time()},
     case p2phun_routingtable:add_peer_if_possible(MyId, Peer) of
         peer_added ->
-            NewCallers = notify_and_remove_callers(got_hello, PeerId, State),
+            NewCallers = notify_and_remove_callers(got_hello, {ok, {PeerId, self()}}, State),
             case State?STATE.we_connected of
               false -> send_hello(State);
               true -> ok

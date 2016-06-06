@@ -35,8 +35,8 @@ create_nodes(Ids, RoutingTableUpdates) ->
     lists:map(fun(Id) -> spawn_node(Id, RoutingTableUpdates) end, Ids).
 
 connection(IdClient, IdServer) ->
-    {connected, ChildPid} = p2phun_peer_pool:connect_sync(IdClient, ?LOCALHOST, 5000 + IdServer),
-    ChildPid.
+    {ok, {IdServer, ConnectionPid}} = p2phun_peer_pool:connect(IdClient, ?LOCALHOST, 5000 + IdServer, sync),
+    ConnectionPid.
 
 connect(IdClient, IdServer) ->
-    p2phun_peer_pool:connect_sync(IdClient, ?LOCALHOST, 5000 + IdServer).
+    p2phun_peer_pool:connect(IdClient, ?LOCALHOST, 5000 + IdServer, sync).

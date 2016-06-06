@@ -5,6 +5,10 @@
 -define(SWARM(Id), {swarm, Id}).
 -define(KEYSPACE_SIZE, math:pow(2, 6 * 8)). % Present keyspace_size as used in python config generator script-record(node_config, {id, address, bootstrap_peers}).
 
+-define(NOTIFY_WHEN(Type), {Type, self()}).
+-define(NOTIFICATION(Type, Msg), {Type, Msg}).
+
+
 -type error() :: {already_started, pid()} | term().
 -type id() :: non_neg_integer().
 -type table() :: ets:tid() | atom().
@@ -22,6 +26,7 @@
        }.
 
 -type node_config() :: #{
+       opts => [] | [no_manager],
        id => non_neg_integer(),
        port => inet:port_number(),
        routingtable_cfg => routingtable_cfg()
@@ -81,5 +86,5 @@
 
 % Test-related:
 -define(NODE(Id), #node_config{id=Id, address={?LOCALHOST, 5000 + Id}}).
--define(LOCALHOST, {10,0,2,6}).
+-define(LOCALHOST, {127,0,0,1}).
 -define(PEER(Id), #peer{id=Id, address=?LOCALHOST, server_port=5000 + Id}).

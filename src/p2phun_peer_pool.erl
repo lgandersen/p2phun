@@ -7,7 +7,7 @@
 -include("peer.hrl").
 
 %% API
--export([start_link/1, connect/3, connect_sync/3, connect_and_notify_when_connected/3]).
+-export([start_link/1, connect/4]).
 
 % Ranch callback
 -export([start_link/4]).
@@ -22,37 +22,37 @@
 %% API functions
 %% ===================================================================
 
+-type connect_opts() :: sync | async_silent | async_notify.
+
 %% @doc Start Pool supervisor.
 start_link(MyId) ->
     lager_info(MyId, "Starting up!"),
     supervisor:start_link({local, ?MODULE_ID(MyId)}, ?MODULE, []).
 
-%% @private 
+%% Connect to a new peer
+-spec connect(MyId::id(), Address::nonempty_string(), Port::inet:port_number(), Opts::connect_opts()) -> {ok, pid()} | {error, term()}.
+connect(MyId, Address, Port, async_silent) ->
+    connect_(MyId, Address, Port, []);
+connect(MyId, Address, Port, async_notify) ->
+    connect_(MyId, Address, Port, [?NOTIFY_WHEN(got_hello)]);
+connect(MyId, Address, Port, sync) ->
+    {ok, _ConnectionPid} = connect(MyId, Address, Port, async_notify),
+    receive
+        ?NOTIFICATION(got_hello, Msg) -> Msg
+    after 2000 -> {error, timeout}
+    end.
+
+connect_(MyId, Address, Port, Callers) ->
+    lager_info(MyId, "Connecting to peer on ~p:~p.", [Address, Port]),
+    supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id=>MyId, callers=>Callers}]).
+
+%% @private
 %% Ranch callback
 -spec start_link(ListenerPid :: pid(), Socket :: inet:socket(), Transport :: term(), Opts :: [id()]) -> {ok, pid()}.
 start_link(ListenerId, Socket, Transport, [MyId] = Opts) ->
     {ok, [{Address, Port}]} = inet:peernames(Socket),
     lager_info(MyId, "Incoming peer on ~p:~p.", [Address, Port]),
     supervisor:start_child(?MODULE_ID(MyId), [ListenerId, Socket, Transport, Opts]).
-
-%% Connect to a new peer
--spec connect(MyId :: id(), Address :: nonempty_string(), Port :: inet:port_number()) -> {ok, pid()} | {error, term()}.
-connect(MyId, Address, Port) ->
-    lager_info(MyId, "Connecting to peer on ~p:~p.", [Address, Port]),
-    supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => []}]).
-
--spec connect_and_notify_when_connected(MyId :: id(), Address :: nonempty_string(), Port :: inet:port_number()) -> {ok, pid()} | {error, term()}.
-connect_and_notify_when_connected(MyId, Address, Port) ->
-    supervisor:start_child(?MODULE_ID(MyId), [Address, Port, #{my_id => MyId, callers => [{got_hello, self()}]}]).
-
--spec connect_sync(MyId :: id(), Address :: nonempty_string(), Port :: inet:port_number()) -> {connected, pid()} | {error, term()}.
-connect_sync(MyId, Address, Port) ->
-    {ok, ChildPid} = connect_and_notify_when_connected(MyId, Address, Port),
-    receive
-        {got_hello, {error, Reason}} -> {error, Reason};
-        {got_hello, _PeerId} -> {connected, ChildPid}
-    after 2000 -> timeout
-    end.
 
 %% ===================================================================
 %% Supervisor callbacks
