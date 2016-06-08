@@ -69,7 +69,7 @@ parse_json(EJSON, _State) ->
 parse_args(p2phun_peer_pool, connect, Args) ->
     #{nodeid:=NodeId, host:=Host, port:=Port} = map_stringkeys_to_atoms(Args),
     [NodeId, erlang:binary_to_list(Host), Port, sync];
-parse_args(p2phun_node_sup, create_node, [NodeCfgRaw]) ->
+parse_args(p2phun_sup, create_node, [NodeCfgRaw]) ->
     #{opts:=OptsRaw} = NodeCfg = map_stringkeys_to_atoms(NodeCfgRaw),
     RoutingTableCfgRaw = maps:get(routingtable_cfg, NodeCfg),
     RoutingTableCfg = map_stringkeys_to_atoms(RoutingTableCfgRaw),
@@ -95,7 +95,7 @@ parse_response(p2phun_peer_pool, connect, Response) ->
         {error, Reason} -> ErrorMsg(Reason);
         {ok, {PeerId, ConnectionPid}} -> #{peer_id=>PeerId, pid=>pid2json(ConnectionPid)}
     end;
-parse_response(p2phun_node_sup, create_node, {ok, Pid}) -> pid2json(Pid);
+parse_response(p2phun_sup, create_node, {ok, Pid}) -> pid2json(Pid);
 parse_response(p2phun_peertable_operations, fetch_all, Peers) ->
     [#{id => Id, address => address_to_binary(Address), port => Port} ||
     #peer{id=Id, address=Address, server_port=Port} <- Peers];

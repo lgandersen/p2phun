@@ -10,8 +10,6 @@ console.log
 *.beam
 *.vim
 dev.config
-frege
-goedel
-nodes.pickle
+vim_*
 start.sh
 run_tests.sh

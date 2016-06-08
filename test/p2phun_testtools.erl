@@ -15,7 +15,7 @@ spawn_node(Id, RoutingTableUpdates) ->
     RoutingTableSpec = [{space_size, 64}, {number_of_smallbins, 2}, {bigbin_nodesize, 2}, {smallbin_nodesize, 3}, {bigbin_spacesize, 32}],
     ReplaceOption = fun ({Name, _} = Opt, RTSpec) -> lists:keyreplace(Name, 1, RTSpec, Opt) end,
     RoutingTableSpec1 = lists:foldl(ReplaceOption, RoutingTableSpec, RoutingTableUpdates),
-    {ok, Pid} = p2phun_node_sup:create_node_no_manager(#{id=>Id, port=>5000 + Id, routingtable_cfg=>maps:from_list(RoutingTableSpec1)}),
+    {ok, Pid} = p2phun_node_sup:create_node(#{id=>Id, port=>5000 + Id, opts=>[no_manager], routingtable_cfg=>maps:from_list(RoutingTableSpec1)}),
     Pid.
 
 shutdown_nodes(NodePids) ->

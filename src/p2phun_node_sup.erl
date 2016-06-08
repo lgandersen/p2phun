@@ -5,7 +5,7 @@
 -include("peer.hrl").
 
 %% API
--export([create_node/1]).
+-export([start_link/1]).
 
 %% Supervisor callbacks
 -export([init/1]).
@@ -14,8 +14,8 @@
 %% API functions
 %% ===================================================================
 
--spec create_node(node_config()) -> {ok, pid()}.
-create_node(#{id:=Id} = NodeCfg) ->
+-spec start_link(node_config()) -> {ok, pid()}.
+start_link(#{id:=Id} = NodeCfg) ->
     supervisor:start_link({local, ?MODULE_ID(Id)}, ?MODULE, [NodeCfg]).
 
 %% ===================================================================

@@ -40,9 +40,10 @@ handle_call(_Request, _From, State) ->
 
 handle_cast(plz_tend_peers, #state{my_id=MyId} = State) ->
     manage_peerlist_requests(MyId),
-    manage_peer_pinging(MyId),
+    %manage_peer_pinging(MyId),
     {noreply, State};
-handle_cast(_Msg, State) ->
+handle_cast(Msg, State) ->
+    lager_info(State#state.my_id, "Casted message '~p' not understod.", [Msg]),
     {noreply, State}.
 
 handle_info(Info, #state{my_id=MyId} = State) ->
@@ -58,7 +59,7 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 %%%===================================================================
 -spec reminder(pid()) -> no_return().
 reminder(Pid) ->
-    timer:sleep(2000),
+    timer:sleep(5000),
     gen_server:cast(Pid, plz_tend_peers),
     reminder(Pid).
 
@@ -87,6 +88,6 @@ request_peers_and_connect(MyId, PeerPid) ->
                 fun(#peer{id=Id} = _P) -> Id =/= MyId end,
                 peers_not_in_table_(?ROUTINGTABLE(MyId), Peers)), %<-- this should probably be checke JUST before attempting to connect
             lists:foreach(
-                fun(#peer{address=Address, server_port=Port}=_Peer) -> p2phun_peer_pool:connect(MyId, Address, Port) end,
+                fun(#peer{address=Address, server_port=Port}=_Peer) -> p2phun_peer_pool:connect(MyId, Address, Port, async_silent) end,
                 Peers2Add)
     end.

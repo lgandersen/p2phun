@@ -19,20 +19,15 @@
 %% State function exports
 -export([awaiting_hello/2, connected/2, connected/3]).
 
-%% Import routing table specific functions
 -import(p2phun_peertable_operations, [
-    delete_peers_/2,
     fetch_last_fetched_peer_/2,
     fetch_all_servers_/2,
     fetch_peers_closest_to_id_/4
     ]).
 
-%% Import utils
 -import(p2phun_utils, [
     lager_info/3,
-    lager_info/2,
-    b64/1,
-    id2proc_name/2
+    lager_info/2
     ]).
 
 -type search_result() :: {peers_closest, [peer()]} | {found_node, peer()}.
